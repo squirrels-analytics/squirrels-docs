@@ -10,6 +10,17 @@ import yaml, time, re
 from . import _constants as c, _utils as u
 
 
+class _ConfigWithNameBaseModel(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", v):
+            raise ValueError("Name must only contain alphanumeric characters, underscores, and dashes.")
+        return v
+
+
 class AuthType(Enum):
     REQUIRED = "required"
     OPTIONAL = "optional"
@@ -18,19 +29,11 @@ class AuthType(Enum):
 #     MANAGED = "managed"
 #     EXTERNAL = "external"
 
-class ProjectVarsConfig(BaseModel, extra="allow"):
-    name: str
+class ProjectVarsConfig(_ConfigWithNameBaseModel, extra="allow"):
     major_version: int
     label: str = ""
     description: str = ""
     auth_type: AuthType = AuthType.OPTIONAL
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", v):
-            raise ValueError("Project name must only contain alphanumeric characters, underscores, and dashes.")
-        return v
 
     @model_validator(mode="after")
     def finalize_label(self) -> Self:
@@ -49,10 +52,6 @@ class PackageConfig(BaseModel):
         if self.directory == "":
             self.directory = self.git.split('/')[-1].removesuffix('.git')
         return self
-
-
-class _ConfigWithNameBaseModel(BaseModel):
-    name: str
 
 
 class ConnectionTypeEnum(Enum):
@@ -168,6 +167,8 @@ class AnalyticsOutputConfig(_ConfigWithNameBaseModel):
     description: str = ""
     scope: PermissionScope | None = None
     parameters: list[str] | None = Field(default=None, description="The list of parameter names used by the dataset/dashboard")
+    configurables: list[ConfigurableOverride] = Field(default_factory=list)
+    project_configurables: dict[str, Any] | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def finalize_label(self) -> Self:
@@ -187,10 +188,23 @@ class AnalyticsOutputConfig(_ConfigWithNameBaseModel):
             scope_list = [scope.name.lower() for scope in PermissionScope]
             raise ValueError(f'Scope "{value}" is invalid for dataset/dashboard "{name}". Scope must be one of {scope_list}') from e
 
+    @model_validator(mode="after")
+    def validate_configurables(self) -> Self:
+        if self.project_configurables is not None:
+            for cfg_override in self.configurables:
+                if cfg_override.name not in self.project_configurables:
+                    # Determine if it's a dataset or dashboard for better error message
+                    class_name = self.__class__.__name__
+                    type_str = "Dataset" if "Dataset" in class_name else "Dashboard" if "Dashboard" in class_name else "Asset"
+                    raise ValueError(
+                        f'{type_str} "{self.name}" references configurable "{cfg_override.name}" which is not defined '
+                        f'in the project configurables'
+                    )
+        return self
+
 
 class DatasetConfig(AnalyticsOutputConfig):
     model: str = ""
-    configurables: list[ConfigurableOverride] = Field(default_factory=list)
     
     def __hash__(self) -> int:
         return hash("dataset_"+self.name)
@@ -280,13 +294,9 @@ class ManifestConfig(BaseModel):
         """
         Validate that dataset configurables reference valid project-level configurables.
         """
-        for dataset_name, dataset_cfg in self.datasets.items():
-            for cfg_override in dataset_cfg.configurables:
-                if cfg_override.name not in self.configurables:
-                    raise ValueError(
-                        f'Dataset "{dataset_name}" references configurable "{cfg_override.name}" which is not defined '
-                        f'in the project configurables'
-                    )
+        for dataset_cfg in self.datasets.values():
+            dataset_cfg.project_configurables = self.configurables
+            dataset_cfg.validate_configurables()
         return self
     
     def get_default_test_set(self) -> TestSetsConfig:

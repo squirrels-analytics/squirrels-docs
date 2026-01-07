@@ -1,5 +1,6 @@
 from argparse import ArgumentParser, _SubParsersAction
 from pathlib import Path
+from update_checker import UpdateChecker
 import sys, asyncio, traceback, io, subprocess
 
 sys.path.append('.')
@@ -50,9 +51,13 @@ def main():
     # Create a parent parser with common logging options
     parent_parser = ArgumentParser(add_help=False)
     parent_parser.add_argument('-h', '--help', action="help", help="Show this help message and exit")
-    parent_parser.add_argument('--log-level', type=str, choices=["DEBUG", "INFO", "WARNING"], help='Level of logging to use. Default is from SQRL_LOGGING__LOG_LEVEL environment variable or INFO.')
-    parent_parser.add_argument('--log-format', type=str, choices=["text", "json"], help='Format of the log records. Default is from SQRL_LOGGING__LOG_FORMAT environment variable or text.')
-    parent_parser.add_argument('--log-to-file', action='store_true', help='Enable logging to file(s) in the "logs/" folder with rotation and retention policies.')
+    parent_parser.add_argument('--log-level', type=str, choices=["DEBUG", "INFO", "WARNING"], help='Level of logging to use. Default is from SQRL_LOGGING__LEVEL environment variable or INFO.')
+    parent_parser.add_argument('--log-format', type=str, choices=["text", "json"], help='Format of the log records. Default is from SQRL_LOGGING__FORMAT environment variable or text.')
+    parent_parser.add_argument(
+        '--log-to-file', action='store_true', 
+        help='Enable logging to file(s) in the "logs/" folder (or a custom folder) with rotation and retention policies. '
+            'Default is False unless overridden by the SQRL_LOGGING__TO_FILE environment variable.'
+    )
     
     parser = ArgumentParser(description="Command line utilities from the squirrels python package", add_help=False, parents=[parent_parser])
     parser.add_argument('-V', '--version', action='store_true', help='Show the version and exit')
@@ -137,12 +142,27 @@ def main():
     run_parser.add_argument('--build', action='store_true', help='Build the VDL first (without full refresh) before running the API server')
     run_parser.add_argument('--no-cache', action='store_true', help='Do not cache any api results')
     run_parser.add_argument('--host', type=str, default='127.0.0.1', help="The host to run on")
-    run_parser.add_argument('--port', type=int, default=4465, help="The port to run on")
+    run_parser.add_argument('--port', type=int, default=8000, help="The port to run on")
+    run_parser.add_argument(
+        '--forwarded-allow-ips', type=str, default=None, 
+        help="Comma separated list of IP Addresses, IP Networks, or literals (e.g. UNIX Socket path) to trust with proxy headers. "
+            "Defaults to the FORWARDED_ALLOW_IPS environment variable if available, or '127.0.0.1'. The literal '*' means trust everything."
+    )
 
     args, _ = parser.parse_known_args()
     
+    update_checker_result = UpdateChecker().check("squirrels", __version__)
+    if update_checker_result:
+        current_version = update_checker_result.running_version
+        latest_version = update_checker_result.available_version
+        print(f"\033[1;33mA newer version of Squirrels is available!\033[0m")
+        print(f"{current_version} -> \033[1;32m{latest_version}\033[0m (released on {update_checker_result.release_date.date()})")
+        print()
+        print(f"See \033[4mhttps://docs.pysquirrels.com/releases\033[0m for release notes.")
+        print()
+
     if args.version:
-        print(__version__)
+        print(f"Squirrels version: \033[1;32m{__version__}\033[0m")
     elif args.command == c.NEW_CMD:
         Initializer(project_name=args.name, use_curr_dir=args.curr_dir).init_project(args)
     elif args.command == c.INIT_CMD:
@@ -154,7 +174,9 @@ def main():
     else:
         project = SquirrelsProject(
             load_dotenv_globally=True, 
-            log_level=args.log_level, log_format=args.log_format, log_to_file=args.log_to_file
+            log_level=args.log_level, 
+            log_format=args.log_format, 
+            log_to_file=args.log_to_file
         )
         try:
             if args.command == c.DEPS_CMD:

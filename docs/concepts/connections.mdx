@@ -25,7 +25,7 @@ Expand any of the connection types below to see examples.
     Standard format: `dialect://username:password@host:port/database`
 
     Examples:
-    - SQLite: `sqlite:///{project_path}/assets/database.db`
+    - SQLite: `sqlite:////absolute/path/to/database.db`
     - PostgreSQL: `postgresql://user:pass@localhost:5432/mydb`
     - MySQL: `mysql+pymysql://user:pass@localhost:3306/mydb`
 
@@ -36,7 +36,7 @@ Expand any of the connection types below to see examples.
     ConnectorX and ADBC use the same URI format (as far as we know). It is similar to SQLAlchemy but with subtle differences for some databases.
 
     Examples:
-    - SQLite: `sqlite://{project_path}/assets/database.db` (note: two slashes, not three)
+    - SQLite: `sqlite:///absolute/path/to/database.db` (note: two slashes before the first slash for the absolute path, instead of three for sqlalchemy)
     - PostgreSQL: `postgresql://user:pass@localhost:5432/mydb`
 
     See the [ConnectorX documentation](https://sfu-db.github.io/connector-x/databases.html) for more details.
@@ -48,12 +48,12 @@ Expand any of the connection types below to see examples.
     Attaches external databases directly to DuckDB. Unlike other connection types, dbview models that use the DuckDB connection type must be written in the DuckDB SQL dialect.
 
     Examples:
-    - DuckDB: `{project_path}/assets/database.duckdb`
-    - SQLite: `sqlite:{project_path}/assets/database.db`
+    - DuckDB: `/absolute/path/to/database.duckdb`
+    - SQLite: `sqlite:/absolute/path/to/database.db`
     - PostgreSQL: `postgres:host=localhost port=5432 dbname=mydb user=user password=pass`
     - MySQL: `mysql:host=localhost user=root port=0 database=mydb`
     - DuckLake: 
-      - DuckLake with DuckDB: `ducklake:{project_path}/assets/database.duckdb`
+      - DuckLake with DuckDB: `ducklake:/absolute/path/to/database.duckdb`
       - DuckLake with PostgreSQL: `ducklake:postgres:dbname=mydb user=user password=pass host=localhost port=5432`
   </Accordion>
 </AccordionGroup>

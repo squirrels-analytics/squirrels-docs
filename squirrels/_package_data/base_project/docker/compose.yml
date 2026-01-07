@@ -2,6 +2,6 @@ services:
   squirrels:
     build: .
     ports:
-      - "4465:4465"
+      - "8000:8000"
     volumes:
       - ./.env:/app/.env

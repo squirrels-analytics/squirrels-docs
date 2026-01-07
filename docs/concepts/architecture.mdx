@@ -146,7 +146,7 @@ Runtime occurs when a client makes an API request for a dataset or dashboard. Th
 ```mermaid
 flowchart TB
     subgraph request["API Request"]
-        REQ["GET /dataset/sales"]
+        REQ["GET /datasets/sales"]
         PARAMS["?date=2024-01-01"]
         HEADERS["Authorization token"]
         REQ --> HEADERS

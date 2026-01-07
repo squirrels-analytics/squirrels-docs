@@ -1,0 +1,114 @@
+---
+title: "Mount to existing FastAPI app"
+description: "Learn how to integrate Squirrels APIs into an existing FastAPI application"
+---
+
+Sometimes you might want to integrate Squirrels APIs into an existing FastAPI application rather than running Squirrels as a standalone server (i.e., using [sqrl run](/references/cli/run)). This allows you to serve your Squirrels datasets alongside other routes and services in your application.
+
+## Prerequisites
+
+- A Squirrels project already initialized and configured.
+- An existing FastAPI application in Python.
+
+## Steps
+
+### 1. Initialize SquirrelsProject
+
+First, you need to create an instance of `SquirrelsProject` pointing to your project directory.
+
+```python
+from squirrels import SquirrelsProject
+
+# Initialize the project (defaults to current directory)
+sqrl_proj = SquirrelsProject(project_path="./my_squirrels_project")
+```
+
+### 2. Get the FastAPI app and lifespan
+
+Use the `get_http_app_and_lifespan()` method to retrieve the FastAPI sub-application and its lifespan context manager.
+
+```python
+# Get the sub-app and lifespan
+sub_app, sqrl_lifespan = sqrl_proj.get_http_app_and_lifespan()
+```
+
+The `sub_app` contains all the routes for your Squirrels datasets, dashboards, and authentication. The `sqrl_lifespan` handles background tasks such as periodically refreshing parameter options from data sources.
+
+### 3. Integrate the lifespan
+
+To ensure that Squirrels' background tasks run correctly, you should include the Squirrels lifespan in your main application's lifespan.
+
+```python
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Squirrels lifespan context manager
+    async with sqrl_lifespan(sub_app):
+        yield
+
+# Create the main app with the lifespan
+app = FastAPI(lifespan=lifespan)
+```
+
+### 4. Mount the sub-app
+
+Mount the Squirrels sub-app to your main FastAPI application at a specific path. You can use `get_mount_path()` to get a standard path based on your project name and version, or specify your own.
+
+```python
+# Get a standard mount path (e.g., /analytics/my-project/v1)
+mount_path = sqrl_proj.get_mount_path()
+
+# Mount the Squirrels sub-app
+app.mount(mount_path, sub_app)
+```
+
+By default, the mount path is `/analytics/{project_name}/v{project_version}`. You can specify the `path_format` argument to customize the mount path with your own format while including the project name and version.
+
+```python
+mount_path = sqrl_proj.get_mount_path(
+  path_format="/squirrels/{project_name}/v{project_version}"
+)
+```
+
+Note that any underscores in the project name are replaced by dashes. For example, if the project name is "my_project" and the project version is "1", then the `mounted_path` value is `/squirrels/my-project/v1`.
+
+## Complete Example
+
+Here is a complete example of a FastAPI application with a Squirrels project mounted.
+
+```python
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from squirrels import SquirrelsProject
+
+# 1. Initialize Squirrels project
+sqrl_proj = SquirrelsProject(project_path=".")
+
+# 2. Get sub-app and lifespan
+sub_app, sqrl_lifespan = sqrl_proj.get_http_app_and_lifespan()
+
+# 3. Define main app lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with sqrl_lifespan(sub_app):
+        yield
+
+# 4. Create main app and mount Squirrels
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+async def root():
+    return {"message": "Hello from the main app!"}
+
+mount_path = sqrl_proj.get_mount_path()
+app.mount(mount_path, sub_app)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+Now, your Squirrels APIs will be available under the path returned by `sqrl_proj.get_mount_path()` (e.g., `http://localhost:8000/analytics/my-project/v1/api/0/...`).
+

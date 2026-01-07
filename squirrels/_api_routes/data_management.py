@@ -1,8 +1,8 @@
 """
 Data management routes for build and query models
 """
-from typing import Any
-from fastapi import FastAPI, Depends, Request, Response, status
+from typing import Any, Annotated
+from fastapi import FastAPI, Depends, Request, Response, status, Path
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 from dataclasses import asdict
@@ -15,7 +15,7 @@ from .._exceptions import InvalidInputError
 from .._schemas.auth_models import AbstractUser
 from .._dataset_types import DatasetResult
 from .._schemas.query_param_models import get_query_models_for_querying_models, get_query_models_for_compiled_models
-from .base import RouteBase, XApiKeyHeader
+from .base import RouteBase
 
 
 class DataManagementRoutes(RouteBase):
@@ -79,30 +79,26 @@ class DataManagementRoutes(RouteBase):
         cfg_filtered = {k: v for k, v in dict(configurables).items() if k in self.manifest_cfg.configurables}
         return await self.project.get_compiled_model_query(normalized_model_name, user=user, selections=dict(selections), configurables=cfg_filtered)
         
-    def setup_routes(self, app: FastAPI, project_metadata_path: str, param_fields: dict) -> None:
+    def setup_routes(self, app: FastAPI, param_fields: dict) -> None:
         """Setup data management routes"""
         
         # Build project endpoint
-        build_path = project_metadata_path + '/build'
+        build_path = '/build'
         
         @app.post(build_path, tags=["Data Management"], summary="Build or update the Virtual Data Lake (VDL) for the project")
-        async def build(
-            user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
-        ):
+        async def build(user=Depends(self.get_current_user)) -> Response:
             if not u.user_has_elevated_privileges(user.access_level, self.env_vars.elevated_access_level):
                 raise InvalidInputError(403, "unauthorized_access_to_build_model", f"User '{user}' does not have permission to build the virtual data lake (VDL)")
             await self.project.build()
             return Response(status_code=status.HTTP_200_OK)
         
         # Query result endpoints
-        query_models_path = project_metadata_path + '/query-result'
+        query_models_path = '/query-result'
         QueryModelForQueryModels, QueryModelForPostQueryModels = get_query_models_for_querying_models(param_fields)
 
         @app.get(query_models_path, tags=["Data Management"], response_class=JSONResponse)
         async def query_models(
-            request: Request, params: QueryModelForQueryModels, user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
+            request: Request, params: QueryModelForQueryModels, user=Depends(self.get_current_user)
         ) -> rm.DatasetResultModel:
             start = time.time()
             result = await self._query_models_definition(user, asdict(params), headers=dict(request.headers))
@@ -111,8 +107,7 @@ class DataManagementRoutes(RouteBase):
         
         @app.post(query_models_path, tags=["Data Management"], response_class=JSONResponse)
         async def query_models_with_post(
-            request: Request, params: QueryModelForPostQueryModels, user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
+            request: Request, params: QueryModelForPostQueryModels, user=Depends(self.get_current_user)
         ) -> rm.DatasetResultModel:
             start = time.time()
             result = await self._query_models_definition(user, params.model_dump(), headers=dict(request.headers))
@@ -120,13 +115,13 @@ class DataManagementRoutes(RouteBase):
             return result
 
         # Compiled models endpoints - TODO: remove duplication
-        compiled_models_path = project_metadata_path + '/compiled-models/{model_name}'
+        compiled_models_path = '/compiled-models/{model_name}'
         QueryModelForGetCompiled, QueryModelForPostCompiled = get_query_models_for_compiled_models(param_fields)
 
         @app.get(compiled_models_path, tags=["Data Management"], response_class=JSONResponse, summary="Get compiled definition for a model")
         async def get_compiled_model(
-            request: Request, model_name: str, params: QueryModelForGetCompiled, user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
+            request: Request, model_name: Annotated[str, Path(description="The name of the model. Both snake case (with underscores) and kebab case (with dashes) are supported")], 
+            params: QueryModelForGetCompiled, user=Depends(self.get_current_user)
         ) -> rm.CompiledQueryModel:
             start = time.time()
             result = await self._get_compiled_model_definition(model_name, user, asdict(params), headers=dict(request.headers))
@@ -137,8 +132,8 @@ class DataManagementRoutes(RouteBase):
 
         @app.post(compiled_models_path, tags=["Data Management"], response_class=JSONResponse, summary="Get compiled definition for a model")
         async def get_compiled_model_with_post(
-            request: Request, model_name: str, params: QueryModelForPostCompiled, user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
+            request: Request, 
+            model_name: Annotated[str, Path(description="The name of the model. Both snake case (with underscores) and kebab case (with dashes) are supported")], params: QueryModelForPostCompiled, user=Depends(self.get_current_user)
         ) -> rm.CompiledQueryModel:
             start = time.time()
             result = await self._get_compiled_model_definition(model_name, user, params.model_dump(), headers=dict(request.headers))

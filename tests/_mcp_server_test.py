@@ -52,7 +52,7 @@ def mcp_builder(mock_data_catalog, mock_parameters, mock_dataset_result) -> McpS
         project_name="test_project",
         project_label="Test Project",
         max_rows_for_ai=100,
-        get_user_from_headers=lambda headers: None,
+        get_user_from_headers=lambda api_key, bearer_token: None,
         get_data_catalog_for_mcp=get_data_catalog,
         get_dataset_parameters_for_mcp=get_dataset_parameters,
         get_dataset_results_for_mcp=get_dataset_results,

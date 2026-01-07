@@ -107,18 +107,6 @@ class DashboardDependencies(BaseModel):
 class DashboardConfig(AnalyticsOutputConfig):
     format: DashboardFormat = Field(default=DashboardFormat.PNG)
     depends_on: list[DashboardDependencies] = Field(default_factory=list)
-    configurables: list[ConfigurableOverride] = Field(default_factory=list)
-    project_configurables: dict[str, Any] = Field(default_factory=dict, exclude=True)
-
-    @model_validator(mode="after")
-    def validate_configurables(self) -> Self:
-        for cfg_override in self.configurables:
-            if cfg_override.name not in self.project_configurables:
-                raise ValueError(
-                    f'Dashboard "{self.name}" references configurable "{cfg_override.name}" which is not defined '
-                    f'in the project configurables'
-                )
-        return self
 
 
 @dataclass

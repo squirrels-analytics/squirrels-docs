@@ -41,7 +41,7 @@ def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.Conne
     connections["analytics"] = cn.ConnectionProperties(
         label="Analytics Database",
         type=cn.ConnectionTypeEnum.DUCKDB,
-        uri=f"{sqrl.project_path}/assets/analytics.duckdb"
+        uri="/absolute/path/to/analytics.duckdb"
     )
 ```
 

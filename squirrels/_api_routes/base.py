@@ -16,9 +16,6 @@ from .._project import SquirrelsProject
 from .._schemas.auth_models import AbstractUser
 from .._dataset_types import DatasetResultFormat
 
-# Reusable Header dependencies to avoid duplication across routes
-XApiKeyHeader = Header(None, description="API key for authentication (alternative to Authorization header)")
-
 T = TypeVar('T')
 
 
@@ -40,22 +37,18 @@ class RouteBase:
     
         # Authorization dependency for current user
         def get_token_from_session(request: Request) -> str | None:
+            access_token = request.session.get("access_token")
+            if access_token is None: return None
+            
             expiry = request.session.get("access_token_expiry")
             datetime_now = datetime.now(timezone.utc).timestamp()
             if expiry and expiry > datetime_now:
-                return request.session.get("access_token")
-            else:
-                request.session.pop("access_token", None)
-                request.session.pop("access_token_expiry", None)
-                return None
-        
-        def get_user_from_headers(headers: Mapping[str, str], *, access_token: str | None = None) -> AbstractUser:
-            if access_token is None:
-                auth_header = headers.get("Authorization")
-                access_token = auth_header.replace("Bearer ", "") if auth_header else None
+                return access_token
             
-            api_key = headers.get("x-api-key")
-            final_token = api_key if api_key else access_token
+            raise InvalidInputError(401, "session_expired", "Login session expired. Please login again.")
+        
+        def get_user_from_headers(api_key: str | None, bearer_token: str | None) -> AbstractUser:
+            final_token = api_key if api_key else bearer_token
             user = self.authenticator.get_user_from_token(final_token)
             if user is None:
                 user = self.project._guest_user
@@ -63,11 +56,13 @@ class RouteBase:
             return user
         
         async def get_current_user(
-            request: Request, response: Response, auth: HTTPAuthorizationCredentials = Depends(get_bearer_token)
+            request: Request, response: Response, 
+            x_api_key: str | None = Header(None, description="API key for authentication (alternative to Authorization header)"), 
+            auth: HTTPAuthorizationCredentials = Depends(get_bearer_token)
         ) -> AbstractUser:
             token = auth.credentials if auth and auth.scheme == "Bearer" else None
             access_token = token if token else get_token_from_session(request)
-            user = get_user_from_headers(request.headers, access_token=access_token)
+            user = get_user_from_headers(x_api_key, access_token)
             response.headers["Applied-Username"] = user.username
             return user
 
@@ -107,7 +102,7 @@ class RouteBase:
     
     def get_name_from_path_section(self, request: Request, section: int) -> str:
         """Extract name from request path section"""
-        url_path: str = request.scope['route'].path
+        url_path: str = request.url.path
         name_raw = url_path.split('/')[section]
         return u.normalize_name(name_raw)
 

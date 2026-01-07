@@ -1,14 +1,19 @@
 from squirrels import arguments as args, dashboards as d
-from matplotlib import pyplot as plt, figure as f, axes as a
+from matplotlib import pyplot as plt, figure as fg, axes as a
+import asyncio
 
 
 async def main(sqrl: args.DashboardArgs) -> d.PngDashboard:
-    spending_by_month_df = await sqrl.dataset("grouped_expenses", fixed_parameters={"group_by": "month"})
-    spending_by_subcategory_df = await sqrl.dataset("grouped_expenses", fixed_parameters={"group_by": "subcat"})
+    # Get dataset instances concurrently
+    all_dataframes = await asyncio.gather(
+        sqrl.dataset("grouped_expenses", fixed_parameters={"group_by": "month"}),
+        sqrl.dataset("grouped_expenses", fixed_parameters={"group_by": "subcat"})
+    )
+    spending_by_month_df, spending_by_subcategory_df = all_dataframes
 
     # Create a figure with two subplots
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8, 8), height_ratios=(1, 2))
-    fig: f.Figure; ax0: a.Axes; ax1: a.Axes
+    fig: fg.Figure; ax0: a.Axes; ax1: a.Axes
     fig.tight_layout(pad=4, h_pad=6)
 
     # Create a bar chart of spending by month

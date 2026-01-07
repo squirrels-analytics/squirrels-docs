@@ -24,7 +24,7 @@ class _BaseFormatter(l.Formatter):
         # Append request ID if available
         request_id = get_request_id()
         request_id_str = f" [req_id: {request_id}]" if request_id else ""
-        formatted = formatted.format(request_id=request_id_str)
+        formatted = formatted.replace("{request_id}", request_id_str)
         
         # Restore original levelname
         record.levelname = original_levelname
@@ -78,7 +78,7 @@ class _CustomJsonFormatter(l.Formatter):
 
 
 def get_logger(
-    base_path: str, log_to_file: bool, log_level: str, log_format: str, log_file_size_mb: int, log_file_backup_count: int
+    base_path: str, log_to_file: bool | str, log_level: str, log_format: str, log_file_size_mb: float, log_file_backup_count: int
 ) -> u.Logger:
     logger = u.Logger(name=uuid4().hex, level=log_level.upper())
 
@@ -95,13 +95,17 @@ def get_logger(
         raise ValueError("log_format must be either 'text' or 'json'")
     
     if log_to_file:
-        log_file_path = Path(base_path, c.LOGS_FOLDER, c.LOGS_FILE)
+        if isinstance(log_to_file, str):
+            log_file_path = Path(base_path, log_to_file, c.LOGS_FILE)
+        else:
+            log_file_path = Path(base_path, c.LOGS_FOLDER, c.LOGS_FILE)
+        
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Rotating file handler
         file_handler = RotatingFileHandler(
             log_file_path,
-            maxBytes=log_file_size_mb * 1024 * 1024,
+            maxBytes=int(log_file_size_mb * 1024 * 1024),
             backupCount=log_file_backup_count
         )
         file_handler.setLevel(log_level.upper())

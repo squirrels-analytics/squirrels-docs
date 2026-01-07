@@ -27,12 +27,15 @@ def main(sqrl: args.ModelArgs) -> pl.LazyFrame | pl.DataFrame | pd.DataFrame:
     df = df.rename(sqrl.ctx.get("column_to_alias_mapping", {}))
 
     dimension_cols: list[str] | None = sqrl.ctx.get("group_by_cols")
+    decimal_type = pl.Decimal(precision=15, scale=2)
     if dimension_cols is not None:
         df = df.group_by(dimension_cols).agg(
-            pl.sum("amount").cast(pl.Decimal(precision=15, scale=2)).alias("total_amount")
+            pl.sum("amount").cast(decimal_type).alias("total_amount")
         )
     else:
-        df = df.rename({"amount": "total_amount"})
+        df = df.with_columns(
+            pl.col("amount").cast(decimal_type).alias("total_amount")
+        )
     
     order_by_cols: list[str] = sqrl.ctx.get("order_by_cols")
     if order_by_cols is not None:

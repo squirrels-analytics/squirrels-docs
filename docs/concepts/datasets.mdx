@@ -50,7 +50,7 @@ Also, each configured dataset gets its own permissioned endpoints:
 Most dataset-related endpoints are rooted under a project-specific prefix constructed by the API server:
 
 ```text
-/api/squirrels/v{sqrl_major_version}/project/{project_name}/{project_version}
+/analytics/{project_name}/v{project_version}/api/0
 ```
 
 - **`sqrl_major_version`**: The Squirrels framework major version (from the running server)
@@ -76,8 +76,8 @@ The data catalog response includes the project-level `parameters` list. For **se
 ### Dataset parameters endpoint
 
 ```text
-GET  {api_prefix}/dataset/{dataset_name}/parameters
-POST {api_prefix}/dataset/{dataset_name}/parameters
+GET  {api_prefix}/datasets/{dataset_name}/parameters
+POST {api_prefix}/datasets/{dataset_name}/parameters
 ```
 
 The parameters endpoint has two common modes:
@@ -88,8 +88,8 @@ The parameters endpoint has two common modes:
 ### Dataset results endpoint
 
 ```text
-GET  {api_prefix}/dataset/{dataset_name}
-POST {api_prefix}/dataset/{dataset_name}
+GET  {api_prefix}/datasets/{dataset_name}
+POST {api_prefix}/datasets/{dataset_name}
 ```
 
 These endpoints execute the dataset's underlying model using the provided selections and return the dataset result as JSON.
@@ -138,8 +138,8 @@ None
 <Accordion title="Get dataset parameters" icon="sliders">
 
 ```text
-GET  {api_prefix}/dataset/{dataset_name}/parameters
-POST {api_prefix}/dataset/{dataset_name}/parameters
+GET  {api_prefix}/datasets/{dataset_name}/parameters
+POST {api_prefix}/datasets/{dataset_name}/parameters
 ```
 
 **Widget selections**
@@ -171,8 +171,8 @@ The parameters endpoint behavior depends on the presence of `x_parent_param` and
 <Accordion title="Get dataset results" icon="table">
 
 ```text
-GET  {api_prefix}/dataset/{dataset_name}
-POST {api_prefix}/dataset/{dataset_name}
+GET  {api_prefix}/datasets/{dataset_name}
+POST {api_prefix}/datasets/{dataset_name}
 ```
 
 **Widget selections**
@@ -203,7 +203,7 @@ The `x_sql_query` uses Polars SQL instead of DuckDB SQL (or other query engines 
 
 </AccordionGroup>
 
-For more information on these endpoints, you can find the swagger documentation of any running Squirrels server at the path `/project/{project_name}/v{project_version}/docs`.
+For more information on these endpoints, you can find the swagger documentation of any running Squirrels server at the path `/analytics/{project_name}/v{project_version}/docs`.
 
 ## Example client workflow
 

@@ -119,29 +119,29 @@ class SquirrelsEnvVars(BaseModel):
 
     # Studio
     studio_base_url: str = Field(
-        "https://squirrels-analytics.github.io/squirrels-studio-v1", alias=c.SQRL_STUDIO_BASE_URL, 
+        "https://squirrels-analytics.github.io/squirrels-studio-v2", alias=c.SQRL_STUDIO_BASE_URL, 
         description="Base URL for Squirrels Studio"
     )
 
     # Logging
-    logging_log_level: str = Field(
-        "INFO", alias=c.SQRL_LOGGING_LOG_LEVEL, 
+    logging_level: str = Field(
+        "INFO", alias=c.SQRL_LOGGING_LEVEL, 
         description="Logging level"
     )
-    logging_log_format: str = Field(
-        "text", alias=c.SQRL_LOGGING_LOG_FORMAT, 
+    logging_format: str = Field(
+        "text", alias=c.SQRL_LOGGING_FORMAT, 
         description="Logging format"
     )
-    logging_log_to_file: bool = Field(
-        False, alias=c.SQRL_LOGGING_LOG_TO_FILE, 
-        description="Whether to log to file"
+    logging_to_file: bool | str = Field(
+        False, alias=c.SQRL_LOGGING_TO_FILE, 
+        description="Whether to log to file. Can be set to true to use the default 'logs/' folder, or a folder path to write to a custom folder."
     )
-    logging_log_file_size_mb: float = Field(
-        50, gt=0, alias=c.SQRL_LOGGING_LOG_FILE_SIZE_MB, 
+    logging_file_size_mb: float = Field(
+        50, gt=0, alias=c.SQRL_LOGGING_FILE_SIZE_MB, 
         description="Max log file size in MB"
     )
-    logging_log_file_backup_count: int = Field(
-        1, ge=0, alias=c.SQRL_LOGGING_LOG_FILE_BACKUP_COUNT, 
+    logging_file_backup_count: int = Field(
+        1, ge=0, alias=c.SQRL_LOGGING_FILE_BACKUP_COUNT, 
         description="Number of backup log files to keep"
     )
     
@@ -180,7 +180,19 @@ class SquirrelsEnvVars(BaseModel):
                 return []
         return v
     
-    @field_validator("logging_log_to_file", "seeds_infer_schema", mode="before")
+    @field_validator("logging_to_file", mode="before")
+    @classmethod
+    def parse_logging_to_file(cls, v: Any) -> bool | str:
+        if isinstance(v, str):
+            v_lower = v.lower()
+            if v_lower in ("true", "t", "1", "yes", "y", "on"):
+                return True
+            if v_lower in ("false", "f", "0", "no", "n", "off"):
+                return False
+            return v
+        return bool(v)
+
+    @field_validator("seeds_infer_schema", mode="before")
     @classmethod
     def parse_bool(cls, v: Any) -> bool:
         if isinstance(v, str):

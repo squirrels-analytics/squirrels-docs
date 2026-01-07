@@ -108,7 +108,7 @@ def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.Conne
     connections["sqlite_db"] = cn.ConnectionProperties(
         label="SQLite Database",
         type=cn.ConnectionTypeEnum.SQLALCHEMY,
-        uri=f"sqlite:///{sqrl.project_path}/assets/database.db"
+        uri="sqlite:////absolute/path/to/database.db"
     )
 ```
 
@@ -135,7 +135,7 @@ def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.Conne
     connections["analytics"] = cn.ConnectionProperties(
         label="Analytics DuckDB",
         type=cn.ConnectionTypeEnum.DUCKDB,
-        uri=f"{sqrl.project_path}/assets/analytics.duckdb"
+        uri="/absolute/path/to/analytics.duckdb"
     )
     
     # Connect to PostgreSQL through DuckDB
@@ -162,7 +162,7 @@ def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.Conne
         connections["main"] = cn.ConnectionProperties(
             label="Development Database",
             type=cn.ConnectionTypeEnum.SQLALCHEMY,
-            uri=f"sqlite:///{sqrl.project_path}/assets/dev.db"
+            uri="sqlite:////absolute/path/to/dev.db"
         )
 ```
 
@@ -187,7 +187,7 @@ import joblib
 
 def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.ConnectionsArgs) -> None:
     # Load a pre-trained scikit-learn model from file
-    model_path = f"{sqrl.project_path}/assets/ml_model.joblib"
+    model_path = f"{sqrl.project_path}/resources/ml_model.joblib"
     model = joblib.load(model_path)
     connections["ml_model"] = model
 ```

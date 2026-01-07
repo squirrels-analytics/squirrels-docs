@@ -10,7 +10,7 @@ class CustomUserFields(BaseModel):
     - Add "| None" after the type to make it nullable. 
     - Always set a default value for the column (use None if default is null).
     """
-    pass
+    model_config = ConfigDict(extra='allow')
 
 
 class AbstractUser(BaseModel):
@@ -37,6 +37,7 @@ class RegisteredUser(AbstractUser):
 class ApiKey(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
+    last_four: str
     title: str
     username: str
     created_at: datetime
@@ -48,11 +49,18 @@ class ApiKey(BaseModel):
 
 
 class UserField(BaseModel):
-    name: str
-    type: str
-    nullable: bool
-    enum: list[str] | None
-    default: Any | None
+    name: str = Field(description="The name of the field")
+    label: str = Field(description="The human-friendly display name for the field")
+    type: str = Field(description="The type of the field")
+    nullable: bool = Field(description="Whether the field is nullable")
+    enum: list[str] | None = Field(description="The possible values of the field (or None if not applicable)")
+    default: Any | None = Field(description="The default value of the field (or None if field is required)")
+
+
+class UserFieldsModel(BaseModel):
+    username: UserField = Field(description="The username field metadata")
+    access_level: UserField = Field(description="The access level field metadata")
+    custom_fields: list[UserField] = Field(description="The list of custom user fields metadata for the current Squirrels project")
 
 
 class ProviderConfigs(BaseModel):
@@ -69,9 +77,9 @@ class ProviderConfigs(BaseModel):
 
 
 class AuthProvider(BaseModel):
-    name: str
-    label: str
-    icon: str
+    name: str = Field(description="The name of the provider")
+    label: str = Field(description="The human-friendly display name for the provider")
+    icon: str = Field(description="The URL of the provider's icon. Can also start with '/public/' to indicate a file in the '/resources/public/' directory.")
     provider_configs: ProviderConfigs
 
 

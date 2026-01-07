@@ -13,10 +13,11 @@ from ._manifest import PermissionScope
 from ._exceptions import InvalidInputError, ConfigurationError
 from ._arguments.init_time_args import AuthProviderArgs
 from ._schemas.auth_models import (
-    CustomUserFields, AbstractUser, RegisteredUser, ApiKey, UserField, AuthProvider, ProviderConfigs, 
+    CustomUserFields, AbstractUser, RegisteredUser, ApiKey, UserField, UserFieldsModel, AuthProvider, ProviderConfigs, 
     ClientRegistrationRequest, ClientUpdateRequest, ClientDetailsResponse, ClientRegistrationResponse, 
     ClientUpdateResponse, TokenResponse
 )
+from ._schemas import response_models as rm
 from . import _utils as u, _constants as c
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -28,13 +29,16 @@ class Authenticator:
     providers: list[ProviderFunctionType] = []  # static variable to stage providers
 
     def __init__(
-        self, logger: u.Logger, env_vars: SquirrelsEnvVars, auth_args: AuthProviderArgs, provider_functions: list[ProviderFunctionType], 
-        custom_user_fields_cls: type[CustomUserFields], *, sa_engine: Engine | None = None, external_only: bool = False
+        self, logger: u.Logger, env_vars: SquirrelsEnvVars, auth_args: AuthProviderArgs, 
+        provider_functions: list[ProviderFunctionType], custom_user_fields_cls: type[CustomUserFields], 
+        *, 
+        sa_engine: Engine | None = None, external_only: bool = False
     ):
         self.logger = logger
         self.env_vars = env_vars
         self.secret_key = env_vars.secret_key
         self.external_only = external_only
+        self.password_requirements = rm.PasswordRequirements()
 
         # Create a new declarative base for this instance
         self.Base = declarative_base()
@@ -55,6 +59,7 @@ class Authenticator:
             
             id: Mapped[str] = mapped_column(primary_key=True, default=lambda: uuid.uuid4().hex)
             hashed_key: Mapped[str] = mapped_column(unique=True, nullable=False)
+            last_four: Mapped[str] = mapped_column(nullable=False)
             title: Mapped[str] = mapped_column(nullable=False)
             username: Mapped[str] = mapped_column(ForeignKey('users.username', ondelete='CASCADE'), nullable=False)
             created_at: Mapped[datetime] = mapped_column(nullable=False)
@@ -162,40 +167,45 @@ class Authenticator:
         )
     
     def _validate_password_length(self, password: str) -> None:
-        """Validate that password does not exceed 72 characters (bcrypt limit)"""
-        if len(password) > 72:
-            raise InvalidInputError(400, "password_too_long", "Password cannot exceed 72 characters")
+        """Validate that password meets length requirements and does not exceed 72 characters (bcrypt limit)"""
+        min_len = self.password_requirements.min_length
+        max_len = min(self.password_requirements.max_length, 72)
+        if len(password) < min_len:
+            raise InvalidInputError(400, "password_too_short", f"Password must be at least {min_len} characters long")
+        if len(password) > max_len:
+            raise InvalidInputError(400, "password_too_long", f"Password cannot exceed {max_len} characters")
     
     def _initialize_db(self):
         session = self.Session()
         try:
             # Get existing columns in the database
             inspector = inspect(self.engine)
-            existing_columns = {col['name'] for col in inspector.get_columns('users')}
-
-            # Get all columns defined in the model
-            model_columns = set(self.DbUser.__table__.columns.keys())
-
-            # Find columns that are in the model but not in the database
-            new_columns = model_columns - existing_columns
-            if new_columns:
-                add_columns_msg = f"Adding columns to database: {new_columns}"
-                self.logger.info(add_columns_msg)
+            
+            for db_model in [self.DbUser, self.DbApiKey]:
+                table_name = db_model.__tablename__
+                existing_columns = {col['name'] for col in inspector.get_columns(table_name)}
+                model_columns = set(db_model.__table__.columns.keys())
+                new_columns = model_columns - existing_columns
                 
-                for col_name in new_columns:
-                    col = self.DbUser.__table__.columns[col_name]
-                    column_type = col.type.compile(self.engine.dialect)
-                    nullable = "NULL" if col.nullable else "NOT NULL"
-                    if col.default is not None:
-                        default_val = f"'{col.default.arg}'" if isinstance(col.default.arg, str) else col.default.arg
-                        default = f"DEFAULT {default_val}"
-                    else:
-                        default = ""
+                if new_columns:
+                    add_columns_msg = f"Adding columns to table {table_name}: {new_columns}"
+                    self.logger.info(add_columns_msg)
                     
-                    alter_stmt = f"ALTER TABLE users ADD COLUMN {col_name} {column_type} {nullable} {default}"
-                    session.execute(text(alter_stmt))
-                
-                session.commit()
+                    for col_name in new_columns:
+                        col = db_model.__table__.columns[col_name]
+                        column_type = col.type.compile(self.engine.dialect)
+                        nullable = "NULL" if col.nullable else "NOT NULL"
+                        if col.default is not None and not callable(col.default.arg):
+                            default_val = f"'{col.default.arg}'" if isinstance(col.default.arg, str) else col.default.arg
+                            default = f"DEFAULT {default_val}"
+                        else:
+                            # If nullable is False and no default is provided, use an empty string as a placeholder default for SQLite
+                            default = "DEFAULT ''" if not col.nullable else ""
+                        
+                        alter_stmt = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {column_type} {nullable} {default}"
+                        session.execute(text(alter_stmt))
+                    
+                    session.commit()
 
             # Get admin password from environment variable if exists
             admin_password = self.env_vars.secret_admin_password
@@ -216,7 +226,7 @@ class Authenticator:
             session.close()
 
     @cached_property
-    def user_fields(self) -> list[UserField]:
+    def user_fields(self) -> UserFieldsModel:
         """
         Get the fields of the CustomUserFields model as a list of dictionaries
         
@@ -227,13 +237,8 @@ class Authenticator:
         - enum: The possible values of the field (or None if not applicable)
         - default: The default value of the field (or None if field is required)
         """
-        # Add the base fields
-        fields = [
-            UserField(name="username", type="string", nullable=False, enum=None, default=None),
-            UserField(name="access_level", type="string", nullable=False, enum=["admin", "member"], default="member")
-        ]
         
-        # Add custom fields
+        custom_fields = []
         schema = self.CustomUserFields.model_json_schema()
         properties: dict[str, dict[str, Any]] = schema.get("properties", {})
         for field_name, field_schema in properties.items():
@@ -244,12 +249,16 @@ class Authenticator:
                 field_type = field_schema["type"]
                 nullable = False
             
-            field_data = UserField(name=field_name, type=field_type, nullable=nullable, enum=field_schema.get("enum"), default=field_schema.get("default"))
-            fields.append(field_data)
+            field_data = UserField(name=field_name, label=field_schema.get("title", field_name), type=field_type, nullable=nullable, enum=field_schema.get("enum"), default=field_schema.get("default"))
+            custom_fields.append(field_data)
 
-        return fields
+        return UserFieldsModel(
+            username=UserField(name="username", label="Username / Email", type="string", nullable=False, enum=None, default=None), 
+            access_level=UserField(name="access_level", label="Access Level", type="string", nullable=False, enum=["admin", "member"], default="member"),
+            custom_fields=custom_fields
+        )
     
-    def add_user(self, username: str, user_fields: dict, *, update_user: bool = False) -> None:
+    def add_user(self, username: str, user_fields: dict, *, update_user: bool = False) -> RegisteredUser:
         session = self.Session()
 
         # Separate custom fields from base fields
@@ -260,12 +269,12 @@ class Authenticator:
         if access_level == "guest":
             raise InvalidInputError(400, "invalid_access_level", "Cannot create or update users with 'guest' access level")
         
-        # Extract custom fields (everything except username, access_level, password)
-        custom_fields_dict = {k: v for k, v in user_fields.items() if k not in ['username', 'access_level', 'password']}
+        # Extract custom fields
+        custom_fields_data: dict[str, Any] = user_fields.get('custom_fields')
         
         # Validate the custom fields
         try:
-            custom_fields = self.CustomUserFields(**custom_fields_dict)
+            custom_fields = self.CustomUserFields(**custom_fields_data)
             custom_fields_json = json.dumps(custom_fields.model_dump(mode='json'))
         except ValidationError as e:
             raise InvalidInputError(400, "invalid_user_data", f"Invalid user field '{e.errors()[0]['loc'][0]}': {e.errors()[0]['msg']}")
@@ -273,8 +282,8 @@ class Authenticator:
         # Add or update user
         try:
             # Check if the user already exists
-            existing_user = session.get(self.DbUser, username)
-            if existing_user is not None:
+            db_user = session.get(self.DbUser, username)
+            if db_user is not None:
                 if not update_user:
                     raise InvalidInputError(400, "username_already_exists", f"User '{username}' already exists")
                 
@@ -282,8 +291,8 @@ class Authenticator:
                     raise InvalidInputError(403, "admin_cannot_be_non_admin", "Setting the admin user to non-admin is not permitted")
                 
                 # Update existing user
-                existing_user.access_level = access_level
-                existing_user.custom_fields = custom_fields_json
+                db_user.access_level = access_level
+                db_user.custom_fields = custom_fields_json
             else:
                 if update_user:
                     raise InvalidInputError(404, "no_user_found_for_username", f"No user found for username: {username}")
@@ -293,16 +302,17 @@ class Authenticator:
                 
                 self._validate_password_length(password)
                 password_hash = pwd_context.hash(password)
-                new_user = self.DbUser(
+                db_user = self.DbUser(
                     username=username,
                     access_level=access_level,
                     password_hash=password_hash,
                     custom_fields=custom_fields_json
                 )
-                session.add(new_user)
+                session.add(db_user)
             
             # Commit the transaction
             session.commit()
+            return self._convert_db_user_to_user(db_user)
 
         finally:
             session.close()
@@ -403,7 +413,11 @@ class Authenticator:
             try:
                 token_id = "sqrl-" + secrets.token_urlsafe(16)
                 hashed_key = u.hash_string(token_id, salt=self.secret_key)
-                api_key = self.DbApiKey(hashed_key=hashed_key, title=title, username=user.username, created_at=created_at, expires_at=expire_at)
+                last_four = token_id[-4:]
+                api_key = self.DbApiKey(
+                    hashed_key=hashed_key, last_four=last_four, title=title, username=user.username, 
+                    created_at=created_at, expires_at=expire_at
+                )
                 session.add(api_key)
                 session.commit()
             finally:

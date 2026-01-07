@@ -44,7 +44,9 @@ project_variables:
     A description of the project.
   </ResponseField>
   <ResponseField name="major_version" type="integer" required>
-    The major version number of the project. Used in API versioning (e.g., `/project/my_project/v1/`).
+    The major version number of the project. Used in API versioning (e.g., `/analytics/my-project/v1`).
+
+    Increment this when there are breaking changes in the Squirrels datasets for instance. See below for more information.
   </ResponseField>
   <ResponseField name="auth_type" type="string" default="optional">
     The authentication enforcement for the project. One of:
@@ -59,9 +61,21 @@ The `project_variables` section allows additional custom fields beyond the ones 
 
 </Note>
 
+<Info>
+
+**When to increment the major version?**
+
+For an API client that relies on your Squirrels API server, it may expect specific parameter names, parameter options to accept a range of values, or datasets to contain specific column names. If you were to remove a column from a dataset on your existing service for instance, this may break the API client.
+
+To account for this, it is recommended to avoid removing or renaming columns or parameters, and document it as deprecated in its description instead. Once you are ready to remove the deprecated feature, increment the major version, and deploy a new service without removing the old version. Since the major version is included in the API path, deploying both versions on the same domain is possible. The old version can be removed after all clients have migrated to the new version.
+
+A how-to guide on hosting multiple Squirrels apps on one FastAPI server is coming soon.
+
+</Info>
+
 ### packages
 
-Defines external Squirrels packages to import. Packages allow you to reuse models, macros, and other assets across projects.
+Defines external Squirrels packages to import. Packages allow you to reuse macros and other resources across projects.
 
 ```yaml
 packages:
@@ -99,7 +113,7 @@ connections:
   - name: default
     label: Main Database
     type: sqlalchemy
-    uri: sqlite:///{project_path}/assets/database.db
+    uri: sqlite:////absolute/path/to/database.db
 ```
 
 Each connection is defined as a list item with the following properties:
@@ -247,7 +261,7 @@ Each dataset is defined as a list item with the following properties:
 
 <Expandable title="properties" defaultOpen>
   <ResponseField name="name" type="string" required>
-    A unique identifier for the dataset. Used in API routes (e.g., `/datasets/sales_report`).
+    A unique identifier for the dataset. Used in API routes.
   </ResponseField>
   <ResponseField name="label" type="string" default="(same as name)">
     A human-readable label for the dataset displayed in the UI.
