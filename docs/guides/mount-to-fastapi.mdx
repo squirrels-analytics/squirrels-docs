@@ -7,7 +7,7 @@ Sometimes you might want to integrate Squirrels APIs into an existing FastAPI ap
 
 ## Prerequisites
 
-- A Squirrels project already initialized and configured.
+- A Squirrels project already initialized and configured, with `squirrels >= 0.6.0` installed.
 - An existing FastAPI application in Python.
 
 ## Steps
@@ -17,35 +17,54 @@ Sometimes you might want to integrate Squirrels APIs into an existing FastAPI ap
 First, you need to create an instance of `SquirrelsProject` pointing to your project directory.
 
 ```python
+from fastapi import FastAPI
 from squirrels import SquirrelsProject
 
 # Initialize the project (defaults to current directory)
 sqrl_proj = SquirrelsProject(project_path="./my_squirrels_project")
 ```
 
-### 2. Get the FastAPI app and lifespan
+### 2. Get the FastAPI components
 
-Use the `get_http_app_and_lifespan()` method to retrieve the FastAPI sub-application and its lifespan context manager.
+Use the `get_fastapi_components()` method to retrieve the FastAPI sub-application, its lifespan context manager, and the recommended mount path.
 
 ```python
-# Get the sub-app and lifespan
-sub_app, sqrl_lifespan = sqrl_proj.get_http_app_and_lifespan()
+# Get the FastAPI components
+sqrl_server = sqrl_proj.get_fastapi_components(host="localhost", port=8000)
 ```
 
-The `sub_app` contains all the routes for your Squirrels datasets, dashboards, and authentication. The `sqrl_lifespan` handles background tasks such as periodically refreshing parameter options from data sources.
+The `sqrl_server` is a [FastAPIComponents] object that contains:
+- `fastapi_app`: The sub-app containing all the routes for your Squirrels datasets, dashboards, and authentication.
+- `lifespan`: The lifespan context manager that handles background tasks such as periodically refreshing parameter options from data sources.
+- `mount_path`: The mount path for the Squirrels sub-app.
+
+By default, the mount path is `/analytics/{project_name}/v{project_version}`. You can specify the `mount_path_format` argument to customize the mount path with your own format while including the project name and version.
+
+Note that any underscores in the project name are replaced by dashes. For example, if the project name is "my_project" and the project version is "1", then the `mount_path` value is `/analytics/my-project/v1`.
+
+<Note>
+
+The `host` and `port` arguments are optional and only used for the welcome banner. Squirrels does not get to control or view the host and port of the API server - only uvicorn gets to control these. If not provided, the default values of `localhost` and `8000` are used.
+
+</Note>
 
 ### 3. Integrate the lifespan
 
-To ensure that Squirrels' background tasks run correctly, you should include the Squirrels lifespan in your main application's lifespan.
+Create the FastAPI app with the Squirrels lifespan.
 
 ```python
-from fastapi import FastAPI
+app = FastAPI(lifespan=sqrl_server.lifespan)
+```
+
+If you have defined your own lifespan function, you should include the Squirrels lifespan to ensure that Squirrels' background tasks run correctly.
+
+```python
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Squirrels lifespan context manager
-    async with sqrl_lifespan(sub_app):
+    async with sqrl_server.lifespan(sqrl_server.fastapi_app):
         yield
 
 # Create the main app with the lifespan
@@ -54,25 +73,12 @@ app = FastAPI(lifespan=lifespan)
 
 ### 4. Mount the sub-app
 
-Mount the Squirrels sub-app to your main FastAPI application at a specific path. You can use `get_mount_path()` to get a standard path based on your project name and version, or specify your own.
+Mount the Squirrels sub-app to your main FastAPI application at the mount path of the [FastAPIComponents] object.
 
 ```python
-# Get a standard mount path (e.g., /analytics/my-project/v1)
-mount_path = sqrl_proj.get_mount_path()
-
 # Mount the Squirrels sub-app
-app.mount(mount_path, sub_app)
+app.mount(sqrl_server.mount_path, sqrl_server.fastapi_app)
 ```
-
-By default, the mount path is `/analytics/{project_name}/v{project_version}`. You can specify the `path_format` argument to customize the mount path with your own format while including the project name and version.
-
-```python
-mount_path = sqrl_proj.get_mount_path(
-  path_format="/squirrels/{project_name}/v{project_version}"
-)
-```
-
-Note that any underscores in the project name are replaced by dashes. For example, if the project name is "my_project" and the project version is "1", then the `mounted_path` value is `/squirrels/my-project/v1`.
 
 ## Complete Example
 
@@ -80,35 +86,30 @@ Here is a complete example of a FastAPI application with a Squirrels project mou
 
 ```python
 from fastapi import FastAPI
-from contextlib import asynccontextmanager
 from squirrels import SquirrelsProject
 
 # 1. Initialize Squirrels project
 sqrl_proj = SquirrelsProject(project_path=".")
 
-# 2. Get sub-app and lifespan
-sub_app, sqrl_lifespan = sqrl_proj.get_http_app_and_lifespan()
+# 2. Get FastAPI components
+sqrl_server = sqrl_proj.get_fastapi_components(host="localhost", port=8000)
 
-# 3. Define main app lifespan
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with sqrl_lifespan(sub_app):
-        yield
-
-# 4. Create main app and mount Squirrels
-app = FastAPI(lifespan=lifespan)
+# 3. Create main app
+app = FastAPI(lifespan=sqrl_server.lifespan)
 
 @app.get("/")
 async def root():
     return {"message": "Hello from the main app!"}
 
-mount_path = sqrl_proj.get_mount_path()
-app.mount(mount_path, sub_app)
+# 4. Mount the Squirrels sub-app
+app.mount(sqrl_server.mount_path, sqrl_server.fastapi_app)
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-Now, your Squirrels APIs will be available under the path returned by `sqrl_proj.get_mount_path()` (e.g., `http://localhost:8000/analytics/my-project/v1/api/0/...`).
+Now, your Squirrels APIs will be available under the path `sqrl_server.mount_path` (e.g., `http://localhost:8000/analytics/my-project/v1/api/0/...`).
 
+
+[FastAPIComponents]: /references/python/types/fastapicomponents

@@ -114,14 +114,16 @@ class DataManagementRoutes(RouteBase):
             self.logger.log_activity_time("POST REQUEST for QUERY MODELS", start)
             return result
 
-        # Compiled models endpoints - TODO: remove duplication
+        # Compiled models endpoints
         compiled_models_path = '/compiled-models/{model_name}'
         QueryModelForGetCompiled, QueryModelForPostCompiled = get_query_models_for_compiled_models(param_fields)
 
         @app.get(compiled_models_path, tags=["Data Management"], response_class=JSONResponse, summary="Get compiled definition for a model")
         async def get_compiled_model(
-            request: Request, model_name: Annotated[str, Path(description="The name of the model. Both snake case (with underscores) and kebab case (with dashes) are supported")], 
-            params: QueryModelForGetCompiled, user=Depends(self.get_current_user)
+            request: Request, 
+            model_name: Annotated[str, Path(description="The name of the model. Both snake case (with underscores) and kebab case (with dashes) are supported")], 
+            params: QueryModelForGetCompiled, 
+            user=Depends(self.get_current_user)
         ) -> rm.CompiledQueryModel:
             start = time.time()
             result = await self._get_compiled_model_definition(model_name, user, asdict(params), headers=dict(request.headers))
@@ -133,7 +135,9 @@ class DataManagementRoutes(RouteBase):
         @app.post(compiled_models_path, tags=["Data Management"], response_class=JSONResponse, summary="Get compiled definition for a model")
         async def get_compiled_model_with_post(
             request: Request, 
-            model_name: Annotated[str, Path(description="The name of the model. Both snake case (with underscores) and kebab case (with dashes) are supported")], params: QueryModelForPostCompiled, user=Depends(self.get_current_user)
+            model_name: Annotated[str, Path(description="The name of the model. Both snake case (with underscores) and kebab case (with dashes) are supported")], 
+            params: QueryModelForPostCompiled, 
+            user=Depends(self.get_current_user)
         ) -> rm.CompiledQueryModel:
             start = time.time()
             result = await self._get_compiled_model_definition(model_name, user, params.model_dump(), headers=dict(request.headers))

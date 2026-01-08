@@ -18,6 +18,7 @@ from . import _parameter_sets as ps, _dataset_types as dr, _logging as l
 if TYPE_CHECKING:
     from fastapi import FastAPI
     from contextlib import _AsyncGeneratorContextManager
+    from ._api_server import FastAPIComponents
 
 T = t.TypeVar("T", bound=d.Dashboard)
 M = t.TypeVar("M", bound=m.DataModel)
@@ -217,35 +218,25 @@ class SquirrelsProject:
         env.filters["quote_and_join"] = quote_and_join
         return env
 
-    def get_http_app_and_lifespan(self, *, no_cache: bool = False) -> tuple["FastAPI", "_AsyncGeneratorContextManager"]:
+    def get_fastapi_components(
+        self, *, no_cache: bool = False, host: str = "localhost", port: int = 8000, 
+        mount_path_format: str = "/analytics/{project_name}/v{project_version}"
+    ) -> "FastAPIComponents":
         """
-        Create a FastAPI app that can be mounted at any path and a lifespan context manager.
+        Get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app.
 
         Arguments:
-            no_cache: Whether to disable caching for the API server. Default is False.
+            no_cache: Whether to disable caching for parameter options, datasets, and dashboard results in the API server.
+            host: The host the API server will listen on. Only used for the welcome banner.
+            port: The port the API server will listen on. Only used for the welcome banner.
+            mount_path_format: The format of the mount path. Use {project_name} and {project_version} as placeholders.
         
         Returns:
-            A tuple containing a FastAPI app object and a lifespan context manager.
+            A FastAPIComponents object containing the mount path, lifespan, and FastAPI app.
         """
         from ._api_server import ApiServer
-        server = ApiServer(no_cache=no_cache, project=self)
-        return server.create_app(include_root_mcp=False), server.lifespan
-
-    def get_mount_path(
-        self, path_format: str = "/analytics/{project_name}/v{project_version}"
-    ) -> str:
-        """
-        Get the mount path for the FastAPI app based on project metadata.
-
-        Arguments:
-            path_format: The format of the mount path. Use {project_name} and {project_version} as placeholders.
-        
-        Returns:
-            The mount path as a string.
-        """
-        project_name = u.normalize_name_for_api(self._manifest_cfg.project_variables.name)
-        project_version = self._manifest_cfg.project_variables.major_version
-        return path_format.format(project_name=project_name, project_version=project_version)
+        api_server = ApiServer(no_cache=no_cache, project=self)
+        return api_server.get_fastapi_components(host=host, port=port, mount_path_format=mount_path_format)
 
     def close(self) -> None:
         """

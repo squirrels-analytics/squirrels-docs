@@ -182,6 +182,7 @@
                   "references/python/types/parameter",
                   "references/python/types/datasetmetadata",
                   "references/python/types/datasetresult",
+                  "references/python/types/fastapicomponents",
                   "references/python/types/textvalue"
                 ]
               }
@@ -224,7 +225,8 @@
             "group": "Python integration",
             "icon": "python",
             "pages": [
-              "guides/mount-to-fastapi"
+              "guides/mount-to-fastapi",
+              "guides/run-with-uvicorn"
             ]
           }
         ]

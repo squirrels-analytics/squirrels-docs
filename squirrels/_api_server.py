@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from dataclasses import dataclass
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.security import HTTPBearer
@@ -20,6 +21,7 @@ from ._request_context import set_request_id
 from ._mcp_server import McpServerBuilder
 
 if TYPE_CHECKING:
+    from contextlib import _AsyncGeneratorContextManager
     from ._project import SquirrelsProject
 
 # Import route modules
@@ -80,6 +82,21 @@ class SmartCORSMiddleware(BaseHTTPMiddleware):
             response.headers["Access-Control-Allow-Origin"] = "*"
         
         return response
+
+
+@dataclass
+class FastAPIComponents:
+    """
+    HTTP server components to mount the Squirrels project into an existing FastAPI application.
+
+    Properties:
+        mount_path: The mount path for the Squirrels project.
+        lifespan: The lifespan context manager for the Squirrels project.
+        fastapi_app: The FastAPI app for the Squirrels project.
+    """
+    mount_path: str
+    lifespan: "_AsyncGeneratorContextManager"
+    fastapi_app: "FastAPI"
 
 
 class ApiServer:
@@ -193,21 +210,71 @@ class ApiServer:
         return tags_metadata
     
 
-    @asynccontextmanager
-    async def lifespan(self, app: FastAPI):
-        """App lifespan that includes MCP server lifecycle and background tasks."""
-        refresh_datasource_task = asyncio.create_task(self._refresh_datasource_params())
+    def _print_banner(self, mount_path: str, host: str | None, port: int | None, is_standalone_mode: bool) -> None:
+        """
+        Print the welcome banner with information about the running server.
+        """
+        full_hostname = f"http://{host}:{port}" if host and port else ""
+        mount_path_stripped = mount_path.rstrip("/")
+        show_multiple_options = is_standalone_mode and mount_path_stripped != ""
+
+        banner_width = 80
         
-        if self._mcp_builder:
-            async with self._mcp_builder.lifespan():
-                yield
+        print()
+        print("═" * banner_width)
+        print("👋  WELCOME TO SQUIRRELS!".center(banner_width))
+        print("═" * banner_width)
+        print()
+        print(" 🖥️  Application UI")
+        print(f"  └─ Squirrels Studio: {full_hostname}{mount_path_stripped}/studio")
+        if show_multiple_options:
+            print(f"     └─ (The following URL also redirects to studio: {full_hostname})")
+        print()
+        print(" 🔌 MCP Server URLs")
+        if show_multiple_options:
+            print(f"  ├─ Option 1:         {full_hostname}{mount_path_stripped}/mcp")
+            print(f"  └─ Option 2:         {full_hostname}/mcp")
         else:
-            yield
+            print(f"  └─ Project MCP:      {full_hostname}{mount_path_stripped}/mcp")
+        print()
+        print(" 📖 API Documentation (for the latest version of API contract)")
+        print(f"  ├─ Swagger UI:       {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/docs")
+        print(f"  ├─ ReDoc UI:         {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/redoc")
+        print(f"  └─ OpenAPI Spec:     {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/openapi.json")
+        print()
+        print(f" To explore all HTTP endpoints, see: {full_hostname}{mount_path_stripped}/docs")
+        print()
+        print("─" * banner_width)
+        print("✨ Server is running! Press CTRL+C to stop.".center(banner_width))
+        print("─" * banner_width)
+        print()
+
+
+    def get_lifespan(
+        self, mount_path: str, host: str | None, port: int | None, is_standalone_mode: bool
+    ) -> "_AsyncGeneratorContextManager":
+        """
+        Get the lifespan context manager for the Squirrels project.
+        """
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            """App lifespan that includes MCP server lifecycle and background tasks."""
+            self._print_banner(mount_path, host, port, is_standalone_mode)
+            
+            refresh_datasource_task = asyncio.create_task(self._refresh_datasource_params())
+            
+            if self._mcp_builder:
+                async with self._mcp_builder.lifespan():
+                    yield
+            else:
+                yield
+            
+            refresh_datasource_task.cancel()
         
-        refresh_datasource_task.cancel()
+        return lifespan
 
 
-    def create_app(self) -> FastAPI:
+    def create_app(self, lifespan: "_AsyncGeneratorContextManager") -> FastAPI:
         """
         Create the FastAPI app for the Squirrels project.
         """
@@ -221,7 +288,7 @@ class ApiServer:
         
         app = FastAPI(
             title=f"Squirrels for '{project_label}'",
-            lifespan=self.lifespan
+            lifespan=lifespan
         )
 
         api_v0_app = FastAPI(
@@ -381,6 +448,22 @@ class ApiServer:
         
         self.logger.log_activity_time("creating app server", start)
         return app
+    
+    def get_fastapi_components(
+        self, host: str, port: int, *, 
+        mount_path_format: str = "/analytics/{project_name}/v{project_version}",
+        is_standalone_mode: bool = False
+    ) -> FastAPIComponents:
+        """
+        Get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app.
+        """
+        project_name = u.normalize_name_for_api(self.manifest_cfg.project_variables.name)
+        project_version = self.manifest_cfg.project_variables.major_version
+        mount_path = mount_path_format.format(project_name=project_name, project_version=project_version)
+        
+        lifespan = self.get_lifespan(mount_path, host, port, is_standalone_mode)
+        fastapi_app = self.create_app(lifespan)
+        return FastAPIComponents(mount_path=mount_path, lifespan=lifespan, fastapi_app=fastapi_app)
 
     def run(self, uvicorn_args: Namespace) -> None:
         """
@@ -389,51 +472,16 @@ class ApiServer:
         Arguments:
             uvicorn_args: List of arguments to pass to uvicorn.run. Supports "host", "port", and "forwarded_allow_ips"
         """
-        mount_path = self.project.get_mount_path()
-        sub_app = self.create_app()
+        host = uvicorn_args.host
+        port = uvicorn_args.port
+        forwarded_allow_ips = uvicorn_args.forwarded_allow_ips
 
-        mount_path_stripped = mount_path.rstrip("/")
+        server = self.get_fastapi_components(host=host, port=port, is_standalone_mode=True)
 
-        async def root_lifespan(app: FastAPI):
-            # Print welcome banner on startup
-            full_hostname = f"http://{uvicorn_args.host}:{uvicorn_args.port}"
-            banner_width = 80
-            print()
-            print("═" * banner_width)
-            print("👋  WELCOME TO SQUIRRELS!".center(banner_width))
-            print("═" * banner_width)
-            print()
-            print(" 🖥️  Application UI")
-            print(f"  └─ Squirrels Studio: {full_hostname}{mount_path_stripped}/studio")
-            if mount_path_stripped != "":
-                print(f"     └─ (The following URL also redirects to studio: {full_hostname})")
-            print()
-            print(" 🔌 MCP Server URLs")
-            if mount_path_stripped != "":
-                print(f"  ├─ Option 1:         {full_hostname}{mount_path_stripped}/mcp")
-                print(f"  └─ Option 2:         {full_hostname}/mcp")
-            else:
-                print(f"  └─ Project MCP:      {full_hostname}/mcp")
-            print()
-            print(" 📖 API Documentation (for the latest version of API contract)")
-            print(f"  ├─ Swagger UI:       {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/docs")
-            print(f"  ├─ ReDoc UI:         {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/redoc")
-            print(f"  └─ OpenAPI Spec:     {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/openapi.json")
-            print()
-            print(f" To explore all HTTP endpoints, see: {full_hostname}{mount_path_stripped}/docs")
-            print()
-            print("─" * banner_width)
-            print("✨ Server is running! Press CTRL+C to stop.".center(banner_width))
-            print("─" * banner_width)
-            print()
+        root_app = FastAPI(lifespan=server.lifespan)
+        root_app.mount(server.mount_path, server.fastapi_app)
 
-            # Yield control to the lifespan context manager
-            async with self.lifespan(app):
-                yield
-
-        root_app = FastAPI(lifespan=root_lifespan)
-        root_app.mount(mount_path, sub_app)
-
+        mount_path_stripped = server.mount_path.rstrip("/")
         if mount_path_stripped != "":
             root_app.add_route("/mcp", self._mcp_app, methods=["GET", "POST"])
         
@@ -444,7 +492,6 @@ class ApiServer:
         # Run the API Server
         import uvicorn
         uvicorn.run(
-            root_app, host=uvicorn_args.host, port=uvicorn_args.port, 
-            proxy_headers=True, forwarded_allow_ips=uvicorn_args.forwarded_allow_ips
+            root_app, host=host, port=port, proxy_headers=True, forwarded_allow_ips=forwarded_allow_ips
         )
 

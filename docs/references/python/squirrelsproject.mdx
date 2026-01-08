@@ -328,46 +328,39 @@ async def get_compiled_model_query(
   A CompiledQueryModel object with <code>language</code>, <code>definition</code>, and <code>placeholders</code>.
 </ResponseField>
 
-### get_http_app_and_lifespan()
+### get_fastapi_components()
 
-Method to retrieve the FastAPI sub-application and its lifespan context manager. This is useful for mounting the Squirrels project into an existing FastAPI application.
+Get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app.
 
 ```python
-def get_http_app_and_lifespan(
-    self, *, no_cache: bool = False
-) -> tuple[FastAPI, AsyncGeneratorContextManager]:
+def get_fastapi_components(
+    self, *, no_cache: bool = False, host: str | None = None, port: int | None = None, 
+    mount_path_format: str = "/analytics/{project_name}/v{project_version}"
+) -> FastAPIComponents:
 ```
 
 <Expandable title="arguments" defaultOpen>
   <ResponseField name="no_cache" type="boolean" default={false}>
-    Whether to disable caching for the API server.
+    Whether to disable caching for parameter options, datasets, and dashboard results in the API server.
   </ResponseField>
-</Expandable>
-
-<ResponseField name="returns" type="tuple[FastAPI, AsyncGeneratorContextManager]">
-  A tuple containing the FastAPI app object and the lifespan context manager.
-</ResponseField>
-
-### get_mount_path()
-
-Method to get a standard mount path based on project name and version.
-
-```python
-def get_mount_path(
-    self, path_format: str = "/analytics/{project_name}/v{project_version}"
-) -> str:
-```
-
-<Expandable title="arguments" defaultOpen>
-  <ResponseField name="path_format" type="string" default="/analytics/{project_name}/v{project_version}">
+  <ResponseField name="host" type="string" default="localhost">
+    The host the API server will listen on. Only used for the welcome banner.
+  </ResponseField>
+  <ResponseField name="port" type="integer" default="8000">
+    The port the API server will listen on. Only used for the welcome banner.
+  </ResponseField>
+  <ResponseField name="mount_path_format" type="string" default="/analytics/{project_name}/v{project_version}">
     The format of the mount path. Use {project_name} and {project_version} as placeholders.
     
     Any underscores ("_") in the project name are replaced by dash ("-") for the API path for the {project_name} placeholder.
   </ResponseField>
 </Expandable>
 
-<ResponseField name="returns" type="string">
-  The formatted mount path.
+<ResponseField name="returns" type="FastAPIComponents">
+  A [FastAPIComponents] object with properties:
+  - `mount_path` (str): The mount path for the Squirrels project.
+  - `lifespan` (AsyncGeneratorContextManager): The lifespan context manager for the Squirrels project.
+  - `fastapi_app` (FastAPI): The FastAPI app for the Squirrels project.
 </ResponseField>
 
 ### close()
@@ -609,3 +602,4 @@ sqrl.close()
 [PngDashboard]: /references/python/dashboards/pngdashboard
 [HtmlDashboard]: /references/python/dashboards/htmldashboard
 [DashboardArgs]: /references/python/arguments/dashboardargs
+[FastAPIComponents]: /references/python/types/fastapicomponents

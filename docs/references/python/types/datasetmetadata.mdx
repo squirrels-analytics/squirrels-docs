@@ -61,13 +61,16 @@ Here are some common usage patterns for the `DatasetMetadata` class. It is assum
 ### Get dataset metadata
 
 ```python
-from squirrels.types import DatasetMetadata
+from typing import TYPE_CHECKING
 from squirrels import SquirrelsProject
+
+if TYPE_CHECKING:
+    from squirrels.types import DatasetMetadata
 
 sqrl = SquirrelsProject()
 
 # Get metadata for a dataset
-metadata: DatasetMetadata = sqrl.dataset_metadata("sales_data")
+metadata: "DatasetMetadata" = sqrl.dataset_metadata("sales_data")
 
 # Access schema information as JSON
 schema_json = metadata.to_json()

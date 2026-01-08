@@ -19,7 +19,7 @@ If `TextValue` is needed for type annotation, it can be imported from the `squir
 Transforms the entered text using a function that takes a string and returns a string, and returns a new `TextValue`.
 
 ```python
-def apply(self, str_to_str_function: Callable[[str], str]) -> TextValue:
+def apply(self, str_to_str_function: Callable[[str], str]) -> "TextValue":
 ```
 
 <Expandable title="arguments" defaultOpen>
@@ -37,7 +37,7 @@ If the function does not return a string, a configuration error is raised.
 Returns a new `TextValue` with percent signs added before and after the entered text (for example, for use in SQL `LIKE` patterns).
 
 ```python
-def apply_percent_wrap(self) -> TextValue:
+def apply_percent_wrap(self) -> "TextValue":
 ```
 
 <ResponseField name="returns" type="TextValue">A new `TextValue` with percent signs wrapping the text.</ResponseField>
@@ -107,8 +107,11 @@ The `TextValue` class is primarily used as a type hint in `pyconfigs/context.py`
 ### Using TextValue as a type hint in context.py
 
 ```python highlight="10,13"
-from typing import Any
-from squirrels import arguments as args, parameters as p, TextValue
+from typing import Any, TYPE_CHECKING
+from squirrels import arguments as args, parameters as p
+
+if TYPE_CHECKING:
+    from squirrels.types import TextValue
 
 def main(ctx: dict[str, Any], sqrl: args.ContextArgs) -> None:
     if sqrl.param_exists("my_text_param"):
@@ -116,7 +119,7 @@ def main(ctx: dict[str, Any], sqrl: args.ContextArgs) -> None:
         assert isinstance(my_text_param, p.TextParameter)
         
         # Get text parameter value as TextValue
-        text_value: TextValue = my_text_param.get_entered_text()
+        text_value: "TextValue" = my_text_param.get_entered_text()
         
         # Wrap with % for SQL LIKE pattern matching
         search_pattern = text_value.apply_percent_wrap()
@@ -126,7 +129,7 @@ def main(ctx: dict[str, Any], sqrl: args.ContextArgs) -> None:
 ### Transforming text
 
 ```python
-new_text_value: TextValue = text_value.apply(lambda s: s.strip().upper())
+new_text_value: "TextValue" = text_value.apply(lambda s: s.strip().upper())
 ```
 
 ### Converting text to other types

@@ -100,7 +100,7 @@ class AuthRoutes(RouteBase):
         @auth_router.get(providers_path, tags=["Authentication"])
         async def get_providers(request: Request) -> list[rm.ProviderResponse]:
             """Get list of available authentication providers"""
-            base_url = str(request.url_for("health")).replace("/health", "")
+            base_url = str(request.url_for("explore_http_endpoints")).rstrip("/")
 
             def get_icon_url(icon: str) -> str:
                 if icon.startswith("/public/"):
