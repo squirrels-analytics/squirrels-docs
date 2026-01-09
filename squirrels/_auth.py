@@ -427,12 +427,12 @@ class Authenticator:
         
         return token_id, expire_at
     
-    def get_user_from_token(self, token: str | None) -> RegisteredUser | None:
+    def get_user_from_token(self, token: str | None) -> tuple[RegisteredUser | None, float | None]:
         """
-        Get a user from an access token (JWT, or API key if token starts with 'sqrl-')
+        Get a user and expiry time from an access token (JWT, or API key if token starts with 'sqrl-')
         """
         if not token:
-            return None
+            return None, None
         
         if self.secret_key is None:
             raise ConfigurationError(f"Environment variable '{c.SQRL_SECRET_KEY}' is required to get user from an access token")
@@ -448,9 +448,11 @@ class Authenticator:
                 if api_key is None:
                     raise InvalidTokenError()
                 username = api_key.username
+                expiry = None
             else:
                 payload: dict = jwt.decode(token, self.secret_key, algorithms=["HS256"])
                 username = payload["username"]
+                expiry = payload.get("exp")
                 
             db_user = session.get(self.DbUser, username)
             if db_user is None:
@@ -463,7 +465,7 @@ class Authenticator:
         finally:
             session.close()
         
-        return user
+        return user, expiry
     
     def get_all_api_keys(self, username: str) -> list[ApiKey]:
         """

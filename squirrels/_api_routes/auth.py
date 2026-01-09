@@ -46,7 +46,7 @@ class AuthRoutes(RouteBase):
         
         class UserSessionModel(BaseModel):
             user: UserInfoModel
-            session_expiry_timestamp: float
+            session_expiry_timestamp: float | None
 
         # Setup OAuth2 login providers
         oauth = OAuth()
@@ -71,8 +71,13 @@ class AuthRoutes(RouteBase):
                 raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, no user info found")
             
             expiry = request.session.get("access_token_expiry")
-            assert expiry is not None, "Access token expiry should not be None if user is a RegisteredUser"
-            user_session = UserSessionModel(user=user.model_dump(mode='json'), session_expiry_timestamp=float(expiry))
+            if expiry is None:
+                expiry = getattr(request.state, "access_token_expiry", None)
+            
+            user_session = UserSessionModel(
+                user=user.model_dump(mode='json'), 
+                session_expiry_timestamp=float(expiry) if expiry is not None else None
+            )
             return user_session
 
         # Login endpoint

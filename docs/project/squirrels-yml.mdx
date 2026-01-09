@@ -46,7 +46,7 @@ project_variables:
   <ResponseField name="major_version" type="integer" required>
     The major version number of the project. Used in API versioning (e.g., `/analytics/my-project/v1`).
 
-    Increment this when there are breaking changes in the Squirrels datasets for instance. See below for more information.
+    Increment this when there are breaking changes in the Squirrels datasets (e.g., removing/renaming columns). See below for more information.
   </ResponseField>
   <ResponseField name="auth_type" type="string" default="optional">
     The authentication enforcement for the project. One of:
@@ -69,7 +69,7 @@ For an API client that relies on your Squirrels API server, it may expect specif
 
 To account for this, it is recommended to avoid removing or renaming columns or parameters, and document it as deprecated in its description instead. Once you are ready to remove the deprecated feature, increment the major version, and deploy a new service without removing the old version. Since the major version is included in the API path, deploying both versions on the same domain is possible. The old version can be removed after all clients have migrated to the new version.
 
-A how-to guide on hosting multiple Squirrels apps on one FastAPI server is coming soon.
+See [mounting Squirrels to an existing FastAPI server](/guides/mount-to-fastapi) for guidance on hosting multiple Squirrels apps in one API server.
 
 </Info>
 

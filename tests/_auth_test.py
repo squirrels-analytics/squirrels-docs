@@ -142,7 +142,7 @@ def test_access_tokens(auth: Authenticator, test_user_data):
     token, _ = auth.create_access_token(user, 30, title="Test Token")
     
     # Verify token
-    token_user = auth.get_user_from_token(token)
+    token_user, _ = auth.get_user_from_token(token)
     assert token_user is not None
     assert token_user.username == "tokenuser"
 

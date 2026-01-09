@@ -7,7 +7,7 @@ class McpRequestHeaders(BaseModel):
     @field_validator("raw_headers")
     @classmethod
     def lowercase_keys(cls, v: dict[str, str]) -> dict[str, str]:
-        return {k.lower(): v for k, v in v.items()}
+        return {key.lower(): val for key, val in v.items()}
 
     @property
     def bearer_token(self) -> str | None:

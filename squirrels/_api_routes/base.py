@@ -51,13 +51,13 @@ class RouteBase:
             else:
                 return None
         
-        def get_user_from_headers(api_key: str | None, bearer_token: str | None) -> AbstractUser:
+        def get_user_from_headers(api_key: str | None, bearer_token: str | None) -> tuple[AbstractUser, float | None]:
             final_token = api_key if api_key else bearer_token
-            user = self.authenticator.get_user_from_token(final_token)
+            user, expiry = self.authenticator.get_user_from_token(final_token)
             if user is None:
                 user = self.project._guest_user
             
-            return user
+            return user, expiry
         
         async def get_current_user(
             request: Request, response: Response, 
@@ -66,8 +66,9 @@ class RouteBase:
         ) -> AbstractUser:
             token = auth.credentials if auth and auth.scheme == "Bearer" else None
             access_token = token if token else get_token_from_session(request)
-            user = get_user_from_headers(x_api_key, access_token)
+            user, expiry = get_user_from_headers(x_api_key, access_token)
             response.headers["Applied-Username"] = user.username
+            request.state.access_token_expiry = expiry
             return user
 
         self.get_user_from_headers = get_user_from_headers

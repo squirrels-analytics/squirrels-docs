@@ -155,10 +155,10 @@ def main():
     if update_checker_result:
         current_version = update_checker_result.running_version
         latest_version = update_checker_result.available_version
-        print(f"\033[1;33mA newer version of Squirrels is available!\033[0m")
+        print("\033[1;33mA newer version of Squirrels is available!\033[0m")
         print(f"{current_version} -> \033[1;32m{latest_version}\033[0m (released on {update_checker_result.release_date.date()})")
         print()
-        print(f"See \033[4mhttps://docs.pysquirrels.com/releases\033[0m for release notes.")
+        print("See \033[4mhttps://docs.pysquirrels.com/releases\033[0m for release notes.")
         print()
 
     if args.version:

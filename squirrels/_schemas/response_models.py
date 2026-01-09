@@ -249,7 +249,7 @@ class ApiRoutesModel(BaseModel):
 class ProjectMetadataModel(BaseModel):
     name: Annotated[str, Field(examples=["my_project"], description="The name of the project (usually in snake case with underscores)")]
     name_for_api: Annotated[str, Field(examples=["my-project"], description="The name of the project for the API (with dashes instead of underscores)")]
-    version: Annotated[str, Field(examples=["1"], description="The version of the project. Always starts with 'v' followed by the version number.")]
+    version: Annotated[str, Field(examples=["1"], description="The version of the project. Should be a stringified integer.")]
     label: Annotated[str, Field(examples=["My Project"], description="The human-friendly display name for the project")]
     description: Annotated[str, Field(examples=["My project description"], description="The description of the project")]
     auth_type: Annotated[Literal["optional", "required"], Field(examples=["optional"], description="The authentication type for the project")]
