@@ -368,6 +368,13 @@ class ApiServer:
         
         api_v0_app.add_middleware(SmartCORSMiddleware, allowed_credential_origins=allowed_credential_origins, configurables_as_headers=configurables_as_headers)
         
+        # Mount static files from the "resources/public" directory if it exists
+        # This allows users to serve public-facing static assets (images, CSS, JS, etc.) with HTTP requests
+        static_dir = Path(self.project._project_path) / "resources" / "public"
+        if static_dir.exists() and static_dir.is_dir():
+            api_v0_app.mount("/public", StaticFiles(directory=str(static_dir)), name="public")
+            self.logger.info(f"Mounted static files from: {str(static_dir)}")
+
         # Setup route modules for the v0 API
         get_parameters_definition = self.project_routes.setup_routes(api_v0_app, param_fields)
         self.data_management_routes.setup_routes(api_v0_app, param_fields)
@@ -378,13 +385,6 @@ class ApiServer:
         
         api_v0_mount_path = "/api/0"
         app.mount(api_v0_mount_path, api_v0_app)
-
-        # Mount static files from the "resources/public" directory if it exists
-        # This allows users to serve public-facing static assets (images, CSS, JS, etc.) with HTTP requests
-        static_dir = Path(self.project._project_path) / "resources" / "public"
-        if static_dir.exists() and static_dir.is_dir():
-            app.mount("/public", StaticFiles(directory=str(static_dir)), name="public")
-            self.logger.info(f"Mounted static files from: {str(static_dir)}")
 
         @app.get("/health", summary="Health check endpoint")
         async def health() -> PlainTextResponse:

@@ -259,8 +259,6 @@ class Authenticator:
         )
     
     def add_user(self, username: str, user_fields: dict, *, update_user: bool = False) -> RegisteredUser:
-        session = self.Session()
-
         # Separate custom fields from base fields
         access_level = user_fields.get('access_level', 'member')
         password = user_fields.get('password')
@@ -270,7 +268,7 @@ class Authenticator:
             raise InvalidInputError(400, "invalid_access_level", "Cannot create or update users with 'guest' access level")
         
         # Extract custom fields
-        custom_fields_data: dict[str, Any] = user_fields.get('custom_fields')
+        custom_fields_data: dict[str, Any] = user_fields.get('custom_fields', {})
         
         # Validate the custom fields
         try:
@@ -280,6 +278,7 @@ class Authenticator:
             raise InvalidInputError(400, "invalid_user_data", f"Invalid user field '{e.errors()[0]['loc'][0]}': {e.errors()[0]['msg']}")
 
         # Add or update user
+        session = self.Session()
         try:
             # Check if the user already exists
             db_user = session.get(self.DbUser, username)

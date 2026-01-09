@@ -15,6 +15,7 @@ from .._exceptions import InvalidInputError
 from .._project import SquirrelsProject
 from .._schemas.auth_models import AbstractUser
 from .._dataset_types import DatasetResultFormat
+from .._manifest import AuthType
 
 T = TypeVar('T')
 
@@ -45,7 +46,10 @@ class RouteBase:
             if expiry and expiry > datetime_now:
                 return access_token
             
-            raise InvalidInputError(401, "session_expired", "Login session expired. Please login again.")
+            if self.manifest_cfg.project_variables.auth_type == AuthType.REQUIRED:
+                raise InvalidInputError(401, "session_expired", "Login session expired. Please login again.")
+            else:
+                return None
         
         def get_user_from_headers(api_key: str | None, bearer_token: str | None) -> AbstractUser:
             final_token = api_key if api_key else bearer_token
