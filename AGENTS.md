@@ -58,7 +58,6 @@ Confirm CLI:
 ### High-level architecture
 - Core package is `squirrels/`, exposing a CLI and FastAPI server to run analytics APIs powered by DuckDB and/or Python dataframes (Polars/Pandas).
 - Documentation contents are in `docs/`, built with Mintlify.
-- Projects created by the initializer contain configuration, models, dashboards, and assets, which are compiled/built into a Virtual Data Lake (VDL) and exposed via REST routes.
 
 ### Important modules (library internals)
 - `_command_line.py`: CLI entry; defines commands: `init`, `get-file`, `deps`, `compile`, `build`, `duckdb`, `run`.
@@ -96,7 +95,8 @@ When you run `sqrl new <name>` (or `--curr-dir`), the initializer creates a proj
 - `dashboards/`: Dashboard definitions (`.yml`/`.py`)
 - `macros/`: Jinja SQL macros used by models
 - `seeds/`: CSVs and seed configs to load lookup/reference data
-- `assets/`: Sample databases (e.g., SQLite) and any static assets
+- `resources/`: Sample databases (e.g., SQLite) and/or other resource files referenced by the project
+  - `public/`: Public-facing static assets (images, CSS, JS, etc.)
 - `target/`: Outputs (compiled SQL, logs)
   - `compile/`: Rendered SQL files from `sqrl compile`
   - `duckdb_init.sql`: Initialization SQL used by `sqrl duckdb`

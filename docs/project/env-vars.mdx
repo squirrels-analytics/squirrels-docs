@@ -46,7 +46,7 @@ If the same variable is defined in both `.env.local` and `.env`, the value in `.
 
   By including `https://squirrels-analytics.github.io` in the list, you may also use the following Squirrels Studio site to log in to your Squirrels project with a "bring your own backend service" approach.
 
-  https://squirrels-analytics.github.io/squirrels-studio-v1
+  https://squirrels-analytics.github.io/squirrels-studio-v2
 </ResponseField>
 
 <ResponseField name="SQRL_PERMISSIONS__ELEVATED_ACCESS_LEVEL" type="string" default="admin">
@@ -132,29 +132,29 @@ If the same variable is defined in both `.env.local` and `.env`, the value in `.
 <ResponseField name="SQRL_STUDIO__BASE_URL" type="string" default="see below (too long to fit here)">
   URL for fetching the CSS and JavaScript files for the Squirrels Studio application built in to the Squirrels API server. Can be changed to point to a locally-hosted or self-hosted instance of Squirrels Studio.
 
-  Default value is `https://squirrels-analytics.github.io/squirrels-studio-v1`.
+  Default value is `https://squirrels-analytics.github.io/squirrels-studio-v2`.
 </ResponseField>
 
 ## Logging
 
-<ResponseField name="SQRL_LOGGING__LOG_LEVEL" type="string" default="INFO">
+<ResponseField name="SQRL_LOGGING__LEVEL" type="string" default="INFO">
   The logging level. Valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
 </ResponseField>
 
-<ResponseField name="SQRL_LOGGING__LOG_FORMAT" type="string" default="text">
+<ResponseField name="SQRL_LOGGING__FORMAT" type="string" default="text">
   Format for log output. Valid values: `text` or `json`.
 </ResponseField>
 
-<ResponseField name="SQRL_LOGGING__LOG_TO_FILE" type="boolean" default="false">
-  Whether to write logs to a file in the `logs/` directory in addition to console output.
+<ResponseField name="SQRL_LOGGING__TO_FILE" type="boolean or string" default="false">
+  Whether to write logs to a file in the `logs/` directory in addition to console output. Can be set to `true` to use the default `logs/` folder, or a folder path to write to a custom folder.
 </ResponseField>
 
-<ResponseField name="SQRL_LOGGING__LOG_FILE_SIZE_MB" type="integer" default="50">
-  Maximum size of each log file in megabytes before rotation occurs. Ignored if `SQRL_LOGGING__LOG_TO_FILE` is `false`.
+<ResponseField name="SQRL_LOGGING__FILE_SIZE_MB" type="integer" default="50">
+  Maximum size of each log file in megabytes before rotation occurs. Ignored if `SQRL_LOGGING__TO_FILE` is `false`.
 </ResponseField>
 
-<ResponseField name="SQRL_LOGGING__LOG_FILE_BACKUP_COUNT" type="integer" default="1">
-  Number of backup log files to keep after rotation. Ignored if `SQRL_LOGGING__LOG_TO_FILE` is `false`.
+<ResponseField name="SQRL_LOGGING__FILE_BACKUP_COUNT" type="integer" default="1">
+  Number of backup log files to keep after rotation. Ignored if `SQRL_LOGGING__TO_FILE` is `false`.
 </ResponseField>
 
 ## Example `.env` file
@@ -175,6 +175,6 @@ SQRL_DATASETS__MAX_ROWS_OUTPUT=100000
 SQRL_DATASETS__SQL_TIMEOUT_SECONDS=2
 
 # Logging
-SQRL_LOGGING__LOG_LEVEL=DEBUG
-SQRL_LOGGING__LOG_TO_FILE=true
+SQRL_LOGGING__LEVEL=DEBUG
+SQRL_LOGGING__TO_FILE=true
 ```

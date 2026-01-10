@@ -1,0 +1,76 @@
+---
+title: "Run with Uvicorn"
+description: "Learn how to run your Squirrels project using Uvicorn with custom arguments"
+---
+
+Sometimes you might want to run your Squirrels project directly with Uvicorn instead of using [sqrl run](/references/cli/run). This provides more control over the server configuration, such as setting the host, port, number of workers, SSL settings, and more.
+
+## Prerequisites
+
+- A Squirrels project already initialized and configured, with `squirrels >= 0.6.0` installed.
+- `uvicorn` installed in your environment (comes with the `squirrels` package by default).
+
+## Steps
+
+### 1. Create a Python entry point
+
+Create a new Python file (e.g., `main.py`) in your project directory. This file will initialize your Squirrels project and set up a FastAPI application.
+
+```python
+from squirrels import SquirrelsProject
+
+# Initialize the project
+sqrl_proj = SquirrelsProject(project_path=".")
+
+# Get the FastAPI components
+sqrl_server = sqrl_proj.get_fastapi_components(host="localhost", port=8000, mount_path_format="")
+
+# Set the FastAPI app
+app = sqrl_server.fastapi_app
+```
+
+<Note>
+
+The `host` and `port` arguments are optional and only used for the welcome banner. Squirrels does not get to control or view the host and port of the API server - only uvicorn gets to control these. If not provided, the default values of `localhost` and `8000` are used.
+
+The `mount_path_format` argument controls the mount path shown in the welcome banner and the value of `sqrl_server.mount_path`.
+- By default, this is `/analytics/{project_name}/v{project_version}`.
+- If you are not mounting the Squirrels app to a different FastAPI app, you should set this to an empty string.
+
+See [this how-to guide](/guides/mount-to-fastapi) for more information on how to mount the Squirrels APIs into an existing FastAPI application.
+
+</Note>
+
+### 2. Run with Uvicorn CLI
+
+You can now run this application using the `uvicorn` CLI. This allows you to pass any arguments supported by Uvicorn.
+
+For example, to run with auto-reload and a specific port:
+
+```bash
+uvicorn main:app --reload --port 8080
+```
+
+To run with multiple workers:
+
+```bash
+uvicorn main:app --workers 4
+```
+
+### 3. Run with Uvicorn programmatically
+
+Alternatively, you can run Uvicorn directly from within your Python script using `uvicorn.run()`.
+
+```python
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+```
+
+Note that when using `reload=True` or `workers > 1`, you should pass the app as an import string (e.g., `"main:app"`) instead of the app object itself.
+
+## Uvicorn arguments
+
+By running with Uvicorn directly, you have access to a wide range of configuration options.
+
+For a full list of available arguments, refer to the [Uvicorn documentation](https://www.uvicorn.org/settings/).

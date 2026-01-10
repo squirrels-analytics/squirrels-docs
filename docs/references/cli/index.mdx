@@ -31,9 +31,9 @@ All commands support the following common options:
 | Option | Description |
 |--------|-------------|
 | `-h` or `--help` | Show help message of the command and exit |
-| `--log-level {DEBUG,INFO,WARNING}` | Level of logging to use. Default is from SQRL_LOGGING__LOG_LEVEL environment variable or INFO. |
-| `--log-format {text,json}` | Format of the log records. Default is from SQRL_LOGGING__LOG_FORMAT environment variable or text. |
-| `--log-to-file` | Enable logging to file(s) in the "logs/" folder with rotation and retention policies. |
+| `--log-level {DEBUG,INFO,WARNING}` | Level of logging to use. Default is from SQRL_LOGGING__LEVEL environment variable or INFO. |
+| `--log-format {text,json}` | Format of the log records. Default is from SQRL_LOGGING__FORMAT environment variable or text. |
+| `--log-to-file` | Enable logging to file(s) in the "logs/" folder (or a custom folder) with rotation and retention policies. Default is false unless overridden by the SQRL_LOGGING__TO_FILE environment variable. |
 
 ## Getting help
 

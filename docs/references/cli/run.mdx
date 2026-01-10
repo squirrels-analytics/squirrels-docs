@@ -3,7 +3,11 @@ title: "sqrl run"
 description: "Start the API server for your project"
 ---
 
-The `run` command starts the API server that serves your datasets, dashboards, and routes.
+The `run` command starts the API server that serves your datasets, dashboards, and other routes.
+
+This runs the API server in standalone mode, which automatically mounts the project at the `/analytics/{project_name}/v{project_version}` route.
+
+For details on how to mount the Squirrels APIs into an existing FastAPI application, see [this how-to guide](/guides/mount-to-fastapi).
 
 ## Usage
 
@@ -20,7 +24,8 @@ In addition to the [global options](/references/cli/index#global-options), this 
 | `--build` | Build the VDL first (without full refresh) before starting the server |
 | `--no-cache` | Do not cache any API results |
 | `--host HOST` | Host interface to bind to (default: `127.0.0.1`) |
-| `--port PORT` | Port to bind to (default: `4465`) |
+| `--port PORT` | Port to bind to (default: `8000`) |
+| `--forwarded-allow-ips IPs` | Comma-separated list of IP Addresses, IP Networks, or literals (e.g. UNIX Socket path) to trust with proxy headers. Defaults to the FORWARDED_ALLOW_IPS environment variable if available, or '127.0.0.1'. The literal '*' means trust everything.|
 
 ## Examples
 

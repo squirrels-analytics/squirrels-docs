@@ -1,4 +1,10 @@
 /* Typography styles for Home page */
+.home-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
 .home-title {
   text-align: left;
   margin-top: 24px;

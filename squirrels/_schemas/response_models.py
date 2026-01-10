@@ -3,7 +3,7 @@ from textwrap import dedent
 from pydantic import BaseModel, Field
 from datetime import date
 
-from .. import _model_configs as mc, _sources as s
+from .. import _model_configs as mc, _sources as s, _constants as c
 
 
 ## Simple Auth Response Models
@@ -14,7 +14,7 @@ class ApiKeyResponse(BaseModel):
 class ProviderResponse(BaseModel):
     name: Annotated[str, Field(examples=["my_provider"], description="The name of the provider")]
     label: Annotated[str, Field(examples=["My Provider"], description="The human-friendly display name for the provider")]
-    icon: Annotated[str, Field(examples=["https://example.com/my_provider_icon.png"], description="The URL of the provider's icon")]
+    icon: Annotated[str, Field(examples=["https://example.com/my_provider_icon.png"], description="The URL of the provider's icon. If the path starts with '/public/', it is assumed to be a static file in the project's 'resources/public/' directory.")]
     login_url: Annotated[str, Field(examples=["https://example.com/my_provider_login"], description="The URL to redirect to for provider login")]
 
 
@@ -92,7 +92,8 @@ class ParametersModel(BaseModel):
 
 ## Datasets / Dashboards Catalog Response Models
 
-name_description = "The name of the dataset / dashboard (usually in snake case)"
+name_description = "The name of the dataset / dashboard (usually in snake case with underscores)"
+name_for_api_description = "The name of the dataset / dashboard for the API (with dashes instead of underscores)"
 label_description = "The human-friendly display name for the dataset / dashboard"
 description_description = "The description of the dataset / dashboard"
 parameters_path_description = "The API path to the parameters for the dataset / dashboard"
@@ -122,26 +123,22 @@ class SchemaModel(BaseModel):
 class SchemaWithConditionModel(BaseModel):
     fields: Annotated[list[ColumnWithConditionModel], Field(description="A list of JSON objects containing the 'name' and 'type' for each of the columns in the result")]
 
-class DatasetItemModelForMcp(BaseModel):
-    name: Annotated[str, Field(examples=["mydataset"], description=name_description)]
+class DatasetItemModel(BaseModel):
+    name: Annotated[str, Field(examples=["my_dataset"], description=name_description)]
+    name_for_api: Annotated[str, Field(examples=["my-dataset"], description=name_for_api_description)]
     label: Annotated[str, Field(examples=["My Dataset"], description=label_description)]
     description: Annotated[str, Field(examples=[""], description=description_description)]
     configurables: Annotated[list[ConfigurableOverrideModel], Field(default_factory=list, description="The list of configurables with their default values")]
-    parameters: Annotated[list[str], Field(examples=["myparam1", "myparam2"], description="The list of parameter names used by the dataset. If the list is empty, the dataset does not accept any parameters.")]
+    parameters: Annotated[list[str], Field(examples=[["myparam1", "myparam2"]], description="The list of parameter names used by the dataset. If the list is empty, the dataset does not accept any parameters.")]
     data_schema: Annotated[SchemaWithConditionModel, Field(alias="schema", description="JSON object describing the schema of the dataset")]
-
-class DatasetItemModel(DatasetItemModelForMcp):
-    parameters_path: Annotated[str, Field(examples=["/api/squirrels/v0/myproject/v1/dataset/mydataset/parameters"], description=parameters_path_description)]
-    result_path: Annotated[str, Field(examples=["/api/squirrels/v0/myproject/v1/dataset/mydataset"], description=result_path_description)]
-    
+ 
 class DashboardItemModel(ParametersModel):
     name: Annotated[str, Field(examples=["mydashboard"], description=name_description)]
+    name_for_api: Annotated[str, Field(examples=["my-dashboard"], description=name_for_api_description)]
     label: Annotated[str, Field(examples=["My Dashboard"], description=label_description)]
     description: Annotated[str, Field(examples=[""], description=description_description)]
     configurables: Annotated[list[ConfigurableOverrideModel], Field(default_factory=list, description="The list of configurables with their default values")]
-    parameters: Annotated[list[str], Field(examples=["myparam1", "myparam2"], description="The list of parameter names used by the dashboard")]
-    parameters_path: Annotated[str, Field(examples=["/api/squirrels/v0/myproject/v1/dashboard/mydashboard/parameters"], description=parameters_path_description)]
-    result_path: Annotated[str, Field(examples=["/api/squirrels/v0/myproject/v1/dashboard/mydashboard"], description=result_path_description)]
+    parameters: Annotated[list[str], Field(examples=[["myparam1", "myparam2"]], description="The list of parameter names used by the dashboard")]
     result_format: Annotated[str, Field(examples=["png", "html"], description="The format of the dashboard's result API response (one of 'png' or 'html')")]
 
 ModelConfigType = mc.ModelConfig | s.Source | mc.SeedConfig | mc.BuildModelConfig | mc.DbviewModelConfig | mc.FederateModelConfig
@@ -169,7 +166,7 @@ class LineageRelation(BaseModel):
 
 class CatalogModelForMcp(BaseModel):
     parameters: Annotated[ParametersListType, Field(description="The list of all parameters in the project. It is possible that not all parameters are used by a dataset.")]
-    datasets: Annotated[list[DatasetItemModelForMcp], Field(description="The list of accessible datasets")]
+    datasets: Annotated[list[DatasetItemModel], Field(description="The list of accessible datasets")]
     
 class CatalogModel(CatalogModelForMcp):
     datasets: Annotated[list[DatasetItemModel], Field(description="The list of accessible datasets")]
@@ -210,20 +207,71 @@ class CompiledQueryModel(BaseModel):
 
 ## Project Metadata Response Models
 
-class ProjectVersionModel(BaseModel):
-    major_version: Annotated[int, Field(examples=[1])]
-    data_catalog_path: Annotated[str, Field(examples=["/api/squirrels/v0/project/myproject/v1/data-catalog"])]
+SAMPLE_BASE_URL = "https://example.com/analytics/project/v1"
+SAMPLE_BASE_URL_API = f"{SAMPLE_BASE_URL}{c.LATEST_API_VERSION_MOUNT_PATH}"
 
-class ProjectModel(BaseModel):
-    name: Annotated[str, Field(examples=["myproject"])]
-    version: Annotated[str, Field(examples=["v1"])]
-    label: Annotated[str, Field(examples=["My Project"])]
-    description: Annotated[str, Field(examples=["My project description"])]
+class PasswordRequirements(BaseModel):
+    min_length: Annotated[int, Field(default=8, description="The minimum length of the password")]
+    max_length: Annotated[int, Field(default=64, description="The maximum length of the password")] # For bcrypt, the max length must be 72 or less
+
+class ApiRoutesModel(BaseModel):
+    # Data catalog and assets routes
+    get_data_catalog_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/data-catalog"])]
+    get_parameters_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/parameters"])]
+    get_dataset_parameters_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/datasets/{{dataset_name}}/parameters"])]
+    get_dataset_results_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/datasets/{{dataset_name}}"])]
+    get_dashboard_parameters_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/dashboards/{{dashboard_name}}/parameters"])]
+    get_dashboard_results_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/dashboards/{{dashboard_name}}"])]
+
+    # Data management routes
+    trigger_build_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/build"])]
+    get_query_result_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/query-result"])]
+    get_compiled_model_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/compiled-models/{{model_name}}"])]
+
+    # Authentication routes
+    get_user_session_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-session"])]
+    login_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/login"])]
+    list_providers_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/providers"])]
+    login_with_provider_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/providers/{{provider_name}}/login"])]
+    logout_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/logout"])]
+    change_password_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/password"])]
+    list_api_keys_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys"])]
+    create_api_key_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys"])]
+    revoke_api_key_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys/{{key_id}}"])]
+
+    # User management routes
+    list_user_fields_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/user-fields"])]
+    list_users_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users"])]
+    add_user_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users"])]
+    update_user_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users/{{username}}"])]
+    delete_user_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users/{{username}}"])]
+
+class ProjectMetadataModel(BaseModel):
+    name: Annotated[str, Field(examples=["my_project"], description="The name of the project (usually in snake case with underscores)")]
+    name_for_api: Annotated[str, Field(examples=["my-project"], description="The name of the project for the API (with dashes instead of underscores)")]
+    version: Annotated[str, Field(examples=["1"], description="The version of the project. Should be a stringified integer.")]
+    label: Annotated[str, Field(examples=["My Project"], description="The human-friendly display name for the project")]
+    description: Annotated[str, Field(examples=["My project description"], description="The description of the project")]
+    auth_type: Annotated[Literal["optional", "required"], Field(examples=["optional"], description="The authentication type for the project")]
+    password_requirements: Annotated[PasswordRequirements, Field(description="The password requirements for the project")]
     elevated_access_level: Annotated[Literal["admin", "member", "guest"], Field(
         examples=["admin"], description="The access level required to access elevated features (such as configurables and data lineage)"
     )]
-    redoc_path: Annotated[str, Field(examples=["/project/myproject/v1/redoc"])]
-    swagger_path: Annotated[str, Field(examples=["/project/myproject/v1/docs"])]
-    openapi_path: Annotated[str, Field(examples=["/project/myproject/v1/openapi.json"])]
-    mcp_server_path: Annotated[list[str], Field(examples=[["/project/myproject/v1/mcp", "/mcp"]])]
-    squirrels_version: Annotated[str, Field(examples=["0.1.0"])]
+    api_routes: Annotated[ApiRoutesModel, Field(description="The API routes for the project")]
+
+
+class DocumentationRoutesModel(BaseModel):
+    swagger_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/docs"], description="The URL to the Swagger UI")]
+    redoc_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/redoc"], description="The URL to the ReDoc UI")]
+    openapi_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/openapi.json"], description="The URL to the OpenAPI specification")]
+
+class APIVersionMetadataModel(BaseModel):
+    project_metadata_url: Annotated[str, Field(examples=[SAMPLE_BASE_URL_API], description="The URL to the project metadata endpoint")]
+    documentation_routes: Annotated[DocumentationRoutesModel, Field(description="The API documentation for this version of the API contract")]
+
+class ExploreEndpointsModel(BaseModel):
+    health_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/health"], description="The URL to the health check endpoint")]
+    api_versions: Annotated[dict[str, APIVersionMetadataModel], Field(description="The set of API versions and their metadata paths")]
+    documentation_routes: Annotated[DocumentationRoutesModel, Field(description="The API documentation for the base API application")]
+    mcp_server_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/mcp"], description="The URL to the MCP server")]
+    studio_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/studio"], description="The URL to the Squirrels Studio UI")]

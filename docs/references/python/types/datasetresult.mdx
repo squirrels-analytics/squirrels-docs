@@ -105,13 +105,16 @@ Here are some common usage patterns for the `DatasetResult` class. It is assumed
 ### Query a dataset and access the dataframe
 
 ```python
-from squirrels.types import DatasetResult
+from typing import TYPE_CHECKING
 from squirrels import SquirrelsProject
+
+if TYPE_CHECKING:
+    from squirrels.types import DatasetResult
 
 sqrl = SquirrelsProject()
 
 # Query a dataset
-result: DatasetResult = await sqrl.dataset_result(
+result: "DatasetResult" = await sqrl.dataset_result(
     "sales_data",
     selections={"year": "2024", "region": "north-america"}
 )
@@ -126,12 +129,15 @@ pandas_df = result.df.to_pandas()
 ### Export dataset to JSON with different orientations
 
 ```python
-from squirrels.types import DatasetResult
+from typing import TYPE_CHECKING
 from squirrels import SquirrelsProject
+
+if TYPE_CHECKING:
+    from squirrels.types import DatasetResult
 
 sqrl = SquirrelsProject()
 
-result: DatasetResult = await sqrl.dataset_result("sales_data")
+result: "DatasetResult" = await sqrl.dataset_result("sales_data")
 
 # Get first 10 rows as array of objects (records orientation)
 json_data = result.to_json("records", limit=10, offset=0)

@@ -12,5 +12,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN sqrl deps
 
-EXPOSE 4465
-CMD ["sqrl", "run", "--build", "--host", "0.0.0.0", "--port", "4465"]
+EXPOSE 8000
+CMD ["sqrl", "run", "--build", "--host", "0.0.0.0", "--port", "8000"]

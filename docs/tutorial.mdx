@@ -23,7 +23,7 @@ Now add the SQLite database we will use for the rest of the tutorial. Simply run
 sqrl get-file weather.db
 ```
 
-This uses the [get-file](/references/cli/get-file) command to add a `weather.db` file in the `assets` folder. Feel free to delete the other files in the `assets` folder.
+This uses the [get-file](/references/cli/get-file) command to add a `weather.db` file in the `resources` folder. Feel free to delete the other files in the `resources` folder.
 
 <Info>
 
@@ -56,7 +56,7 @@ project_variables:
 
 The **connections** section is where we set all the [database connection details](/concepts/connections) that we need. We provide a list of connection names here and refer to them in other files. The connection name `default` must be provided for models that don't specify a connection name explicitly.
 
-Under `default`, change the uri field to `sqlite:///{project_path}/assets/weather.db`. Change the label to "SQLite Weather Database".
+Under `default`, change the uri field to `sqlite:///{project_path}/resources/weather.db`. Change the label to "SQLite Weather Database".
 
 <Info>
 
@@ -75,7 +75,7 @@ connections:
   - name: default
     label: SQLite Weather Database
     type: sqlalchemy
-    uri: sqlite:///{project_path}/assets/weather.db
+    uri: sqlite:///{project_path}/resources/weather.db
 ```
 
 The type `sqlalchemy` is the utility used to connect to any database that SQLAlchemy supports. For more information on the different connection types, see the [Connections](/concepts/connections) page.
@@ -594,7 +594,9 @@ This runs the [build command](/references/cli/build) to materialize build models
 sqrl run
 ```
 
-This runs the [run command](/references/cli/run) to start the FastAPI server. Take the time now to explore the project in Squirrels Studio before proceeding.
+This runs the [run command](/references/cli/run) to start the API server in standalone mode. Take the time now to explore the project in Squirrels Studio before proceeding.
+
+The Squirrels API server uses FastAPI under the hood. For details on how to mount the Squirrels APIs into an existing FastAPI application, see [this how-to guide](/guides/mount-to-fastapi).
 
 <Tip>
 
@@ -603,7 +605,7 @@ Use AI to ask questions about your datasets! 🤖
 While the API server is active, you have an MCP server running at:
 
 ```text
-http://localhost:4465/mcp
+http://localhost:8000/mcp
 ```
 
 Check out our guide to [Connect MCP Clients](/guides/mcp-clients)! This allows you to use your favourite AI agent to interact with your Squirrels project.

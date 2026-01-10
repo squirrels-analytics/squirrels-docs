@@ -1,6 +1,6 @@
 ---
 title: "Changes in v0.6.0"
-description: "January 6th, 2026"
+description: "January 11th, 2026"
 ---
 
 import Intro from '/snippets/releases/intro1.mdx';
@@ -14,6 +14,12 @@ The following are fixes and new features for [v0.6.0].
 - [BREAKING CHANGE] Renamed the `SquirrelsProject.dataset` method to `SquirrelsProject.dataset_result` to avoid confusion with the `DashboardArgs.dataset` method. Although the two methods had the same name, they had different purposes and return different types.
 
 ## New features
+
+**[BREAKING CHANGE] Mounting Squirrels APIs into an existing FastAPI application**
+
+- Added the `SquirrelsProject.get_fastapi_components` method to get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app. This allows you to [mount the Squirrels APIs into an existing FastAPI application](/guides/mount-to-fastapi).
+- Since the project name and version are now included in the mount path, they have been removed from the rest of the API path for all endpoints. THIS IS A BREAKING CHANGE. See the /docs endpoint of the Squirrels API server for the updated API endpoints.
+- Running with `sqrl run` (i.e., in "standalone mode") is equivalent to mounting the Squirrels APIs to the default mount path of `/analytics/{project_name}/v{project_version}` and running the main FastAPI app.
 
 **Dashboard context variables and configurables**
 

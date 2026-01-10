@@ -1,10 +1,13 @@
+from typing import TYPE_CHECKING
+from dataclasses import dataclass
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.security import HTTPBearer
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp
 from contextlib import asynccontextmanager
 from argparse import Namespace
 from pathlib import Path
@@ -12,11 +15,14 @@ from starlette.middleware.sessions import SessionMiddleware
 import io, time, mimetypes, traceback, asyncio
 
 from . import _constants as c, _utils as u, _parameter_sets as ps
+from ._schemas import response_models as rm
 from ._exceptions import InvalidInputError, ConfigurationError, FileExecutionError
-from ._version import __version__, sq_major_version
-from ._project import SquirrelsProject
 from ._request_context import set_request_id
 from ._mcp_server import McpServerBuilder
+
+if TYPE_CHECKING:
+    from contextlib import _AsyncGeneratorContextManager
+    from ._project import SquirrelsProject
 
 # Import route modules
 from ._api_routes.auth import AuthRoutes
@@ -78,8 +84,23 @@ class SmartCORSMiddleware(BaseHTTPMiddleware):
         return response
 
 
+@dataclass
+class FastAPIComponents:
+    """
+    HTTP server components to mount the Squirrels project into an existing FastAPI application.
+
+    Properties:
+        mount_path: The mount path for the Squirrels project.
+        lifespan: The lifespan context manager for the Squirrels project.
+        fastapi_app: The FastAPI app for the Squirrels project.
+    """
+    mount_path: str
+    lifespan: "_AsyncGeneratorContextManager"
+    fastapi_app: "FastAPI"
+
+
 class ApiServer:
-    def __init__(self, no_cache: bool, project: SquirrelsProject) -> None:
+    def __init__(self, no_cache: bool, project: "SquirrelsProject") -> None:
         """
         Constructor for ApiServer
 
@@ -103,6 +124,9 @@ class ApiServer:
         self.dataset_routes = DatasetRoutes(get_bearer_token, project, no_cache)
         self.dashboard_routes = DashboardRoutes(get_bearer_token, project, no_cache)
         self.data_management_routes = DataManagementRoutes(get_bearer_token, project, no_cache)
+        
+        self._mcp_builder: McpServerBuilder | None = None
+        self._mcp_app: ASGIApp | None = None
     
     
     async def _refresh_datasource_params(self) -> None:
@@ -186,58 +210,96 @@ class ApiServer:
         return tags_metadata
     
 
-    def run(self, uvicorn_args: Namespace) -> None:
+    def _print_banner(self, mount_path: str, host: str | None, port: int | None, is_standalone_mode: bool) -> None:
         """
-        Runs the API server with uvicorn for CLI "squirrels run"
-
-        Arguments:
-            uvicorn_args: List of arguments to pass to uvicorn.run. Currently only supports "host" and "port"
+        Print the welcome banner with information about the running server.
         """
-        start = time.time()
-        
-        squirrels_version_path = f'/api/squirrels/v{sq_major_version}'
-        project_name = self.manifest_cfg.project_variables.name
-        project_name_for_api = u.normalize_name_for_api(project_name)
-        project_label = self.manifest_cfg.project_variables.label
-        project_version = f"v{self.manifest_cfg.project_variables.major_version}"
-        project_name_version_path = f"/project/{project_name_for_api}/{project_version}"
-        project_metadata_path = squirrels_version_path + project_name_version_path
-        
-        param_fields = self.param_cfg_set.get_all_api_field_info()
+        full_hostname = f"http://{host}:{port}" if host and port else ""
+        mount_path_stripped = mount_path.rstrip("/")
+        show_multiple_options = is_standalone_mode and mount_path_stripped != ""
 
-        tags_metadata = self._get_tags_metadata()
+        banner_width = 80
         
-        openapi_url = project_name_version_path+"/openapi.json"
-        docs_url = project_name_version_path+"/docs"
-        redoc_url = project_name_version_path+"/redoc"
+        print()
+        print("═" * banner_width)
+        print("👋  WELCOME TO SQUIRRELS!".center(banner_width))
+        print("═" * banner_width)
+        print()
+        print(" 🖥️  Application UI")
+        print(f"  └─ Squirrels Studio: {full_hostname}{mount_path_stripped}/studio")
+        if show_multiple_options:
+            print(f"     └─ (The following URL also redirects to studio: {full_hostname})")
+        print()
+        print(" 🔌 MCP Server URLs")
+        if show_multiple_options:
+            print(f"  ├─ Option 1:         {full_hostname}{mount_path_stripped}/mcp")
+            print(f"  └─ Option 2:         {full_hostname}/mcp")
+        else:
+            print(f"  └─ Project MCP:      {full_hostname}{mount_path_stripped}/mcp")
+        print()
+        print(" 📖 API Documentation (for the latest version of API contract)")
+        print(f"  ├─ Swagger UI:       {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/docs")
+        print(f"  ├─ ReDoc UI:         {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/redoc")
+        print(f"  └─ OpenAPI Spec:     {full_hostname}{mount_path_stripped}{c.LATEST_API_VERSION_MOUNT_PATH}/openapi.json")
+        print()
+        print(f" To explore all HTTP endpoints, see: {full_hostname}{mount_path_stripped}/docs")
+        print()
+        print("─" * banner_width)
+        print("✨ Server is running! Press CTRL+C to stop.".center(banner_width))
+        print("─" * banner_width)
+        print()
 
-        # Container for MCP builder - will be populated after setup_routes
-        mcp_container: dict[str, McpServerBuilder] = {}
-        
+
+    def get_lifespan(
+        self, mount_path: str, host: str | None, port: int | None, is_standalone_mode: bool
+    ) -> "_AsyncGeneratorContextManager":
+        """
+        Get the lifespan context manager for the Squirrels project.
+        """
         @asynccontextmanager
-        async def app_lifespan(app: FastAPI):
+        async def lifespan(app: FastAPI):
             """App lifespan that includes MCP server lifecycle and background tasks."""
-            mcp_builder = mcp_container.get("mcp_builder")
+            self._print_banner(mount_path, host, port, is_standalone_mode)
+            
             refresh_datasource_task = asyncio.create_task(self._refresh_datasource_params())
             
-            if mcp_builder:
-                async with mcp_builder.lifespan():
+            if self._mcp_builder:
+                async with self._mcp_builder.lifespan():
                     yield
             else:
                 yield
             
             refresh_datasource_task.cancel()
+        
+        return lifespan
 
+
+    def create_app(self, lifespan: "_AsyncGeneratorContextManager") -> FastAPI:
+        """
+        Create the FastAPI app for the Squirrels project.
+        """
+        start = time.time()
+        
+        project_name = self.manifest_cfg.project_variables.name
+        project_label = self.manifest_cfg.project_variables.label
+        
+        param_fields = self.param_cfg_set.get_all_api_field_info()
+        tags_metadata = self._get_tags_metadata()
+        
         app = FastAPI(
-            title=f"Squirrels APIs for '{project_label}'", openapi_tags=tags_metadata,
-            description="For specifying parameter selections to dataset APIs, you can choose between using query parameters with the GET method or using request body with the POST method",
-            lifespan=app_lifespan,
-            openapi_url=openapi_url,
-            docs_url=docs_url,
-            redoc_url=redoc_url
+            title=f"Squirrels for '{project_label}'",
+            lifespan=lifespan
         )
 
-        app.add_middleware(SessionMiddleware, secret_key=self.env_vars.secret_key, max_age=None, same_site="none", https_only=True)
+        api_v0_app = FastAPI(
+            title=f"Squirrels APIs for '{project_label}'", openapi_tags=tags_metadata,
+            description="For specifying parameter selections to dataset APIs, you can choose between using query parameters with the GET method or using request body with the POST method",
+            openapi_url="/openapi.json",
+            docs_url="/docs",
+            redoc_url="/redoc"
+        )
+
+        api_v0_app.add_middleware(SessionMiddleware, secret_key=self.env_vars.secret_key, max_age=None, same_site="none", https_only=True)
 
         async def _log_request_run(request: Request) -> None:
             try:
@@ -255,7 +317,7 @@ class ApiServer:
             data = {"request_method": request.method, "request_path": path, "request_params": params, "request_body": body, "partial_headers": partial_headers}
             self.logger.info(f'Running request: {request.method} {path_with_params}', data=data)
 
-        @app.middleware("http")
+        @api_v0_app.middleware("http")
         async def catch_exceptions_middleware(request: Request, call_next):
             # Generate and set request ID for this request
             request_id = set_request_id()
@@ -297,99 +359,139 @@ class ApiServer:
             return response
 
         # Configure CORS with smart credential handling
-        # Get allowed origins for credentials from environment variable
         allowed_credential_origins = self.env_vars.auth_credential_origins
         
-        # Allow both underscore and dash versions of configurable headers
         configurables_as_headers = []
         for name in self.manifest_cfg.configurables.keys():
             configurables_as_headers.append(f"x-config-{name}")  # underscore version
             configurables_as_headers.append(f"x-config-{u.normalize_name_for_api(name)}")  # dash version
         
-        app.add_middleware(SmartCORSMiddleware, allowed_credential_origins=allowed_credential_origins, configurables_as_headers=configurables_as_headers)
+        api_v0_app.add_middleware(SmartCORSMiddleware, allowed_credential_origins=allowed_credential_origins, configurables_as_headers=configurables_as_headers)
         
-        # Setup route modules
-        # self.oauth2_routes.setup_routes(app, squirrels_version_path)
-        self.auth_routes.setup_routes(app, squirrels_version_path)
-        get_parameters_definition = self.project_routes.setup_routes(
-            app, project_metadata_path, project_name_version_path, project_name, project_version, param_fields
-        )
-        self.data_management_routes.setup_routes(app, project_metadata_path, param_fields)
-        self.dataset_routes.setup_routes(app, project_metadata_path, param_fields, get_parameters_definition)
-        self.dashboard_routes.setup_routes(app, project_metadata_path, param_fields, get_parameters_definition)
+        # Mount static files from the "resources/public" directory if it exists
+        # This allows users to serve public-facing static assets (images, CSS, JS, etc.) with HTTP requests
+        static_dir = Path(self.project._project_path) / "resources" / "public"
+        if static_dir.exists() and static_dir.is_dir():
+            api_v0_app.mount("/public", StaticFiles(directory=str(static_dir)), name="public")
+            self.logger.info(f"Mounted static files from: {str(static_dir)}")
 
-        # Build the MCP server now that route methods are available
-        max_rows_for_ai = self.env_vars.datasets_max_rows_for_ai
-        mcp_builder = McpServerBuilder(
+        # Setup route modules for the v0 API
+        get_parameters_definition = self.project_routes.setup_routes(api_v0_app, param_fields)
+        self.data_management_routes.setup_routes(api_v0_app, param_fields)
+        self.dataset_routes.setup_routes(api_v0_app, param_fields, get_parameters_definition)
+        self.dashboard_routes.setup_routes(api_v0_app, param_fields, get_parameters_definition)
+        # self.oauth2_routes.setup_routes(api_v0_app)
+        self.auth_routes.setup_routes(api_v0_app)
+        
+        api_v0_mount_path = "/api/0"
+        app.mount(api_v0_mount_path, api_v0_app)
+
+        @app.get("/health", summary="Health check endpoint")
+        async def health() -> PlainTextResponse:
+            return PlainTextResponse(status_code=200, content="OK")
+        
+        # Build the MCP server after routes are set up
+        self._mcp_builder = McpServerBuilder(
             project_name=project_name,
             project_label=project_label,
-            max_rows_for_ai=max_rows_for_ai,
+            max_rows_for_ai=self.env_vars.datasets_max_rows_for_ai,
             get_user_from_headers=self.project_routes.get_user_from_headers,
             get_data_catalog_for_mcp=self.project_routes._get_data_catalog_for_mcp,
             get_dataset_parameters_for_mcp=self.dataset_routes._get_dataset_parameters_for_mcp,
             get_dataset_results_for_mcp=self.dataset_routes._get_dataset_results_for_mcp,
         )
-        mcp_container["mcp_builder"] = mcp_builder
-        mcp_app = mcp_builder.get_asgi_app()
+        self._mcp_app = self._mcp_builder.get_asgi_app()
 
-        # Mount static files from public directory if it exists
-        # This allows users to serve static assets (images, CSS, JS, etc.) from {project_path}/public/
-        public_dir = Path(self.project._project_path) / c.PUBLIC_FOLDER
-        if public_dir.exists() and public_dir.is_dir():
-            app.mount("/public", StaticFiles(directory=str(public_dir)), name="public")
-            self.logger.info(f"Mounted static files from: {public_dir}")
-    
-        # Add Root Path Redirection to Squirrels Studio
-        full_hostname = f"http://{uvicorn_args.host}:{uvicorn_args.port}"
-        squirrels_studio_path = f"{project_name_version_path}/studio"
+        # Add Squirrels Studio
         templates = Jinja2Templates(directory=str(Path(__file__).parent / "_package_data" / "templates"))
 
-        @app.get(squirrels_studio_path, include_in_schema=False)
-        async def squirrels_studio():
+        @app.get("/studio", include_in_schema=False)
+        async def squirrels_studio(request: Request):
             sqrl_studio_base_url = self.env_vars.studio_base_url
+            host_url = request.url_for("explore_http_endpoints")
             context = {
                 "sqrl_studio_base_url": sqrl_studio_base_url,
-                "project_name": project_name_for_api,
-                "project_version": project_version,
+                "host_url": str(host_url).rstrip("/"),
             }
-            return HTMLResponse(content=templates.get_template("squirrels_studio.html").render(context))
-        
-        @app.get("/", include_in_schema=False)
-        async def redirect_to_studio():
-            return RedirectResponse(url=squirrels_studio_path)
+            template = templates.get_template("squirrels_studio.html")
+            return HTMLResponse(content=template.render(context))
 
         # Mount MCP server
-        app.add_route(f"{project_name_version_path}/mcp", mcp_app, methods=["GET", "POST"])
-        app.add_route("/mcp", mcp_app, methods=["GET", "POST"])
-    
+        app.add_route("/mcp", self._mcp_app, methods=["GET", "POST"])
+        
+        # Get API versions and other endpoints
+        @app.get("/", summary="Explore all HTTP endpoints")
+        async def explore_http_endpoints(request: Request) -> rm.ExploreEndpointsModel:
+            base_url = str(request.url).rstrip("/")
+            return rm.ExploreEndpointsModel(
+                health_url=base_url + "/health",
+                api_versions={
+                    "0": rm.APIVersionMetadataModel(
+                        project_metadata_url=base_url + api_v0_mount_path + "/",
+                        documentation_routes=rm.DocumentationRoutesModel(
+                            swagger_url=base_url + api_v0_mount_path + "/docs",
+                            redoc_url=base_url + api_v0_mount_path + "/redoc",
+                            openapi_url=base_url + api_v0_mount_path + "/openapi.json"
+                        )
+                    )
+                },
+                documentation_routes=rm.DocumentationRoutesModel(
+                    swagger_url=base_url + "/docs",
+                    redoc_url=base_url + "/redoc",
+                    openapi_url=base_url + "/openapi.json"
+                ),
+                mcp_server_url=base_url + "/mcp",
+                studio_url=base_url + "/studio",
+            )
+
+        app.add_middleware(SmartCORSMiddleware, allowed_credential_origins=allowed_credential_origins, configurables_as_headers=configurables_as_headers)
+        
         self.logger.log_activity_time("creating app server", start)
+        return app
+    
+    def get_fastapi_components(
+        self, host: str, port: int, *, 
+        mount_path_format: str = "/analytics/{project_name}/v{project_version}",
+        is_standalone_mode: bool = False
+    ) -> FastAPIComponents:
+        """
+        Get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app.
+        """
+        project_name = u.normalize_name_for_api(self.manifest_cfg.project_variables.name)
+        project_version = self.manifest_cfg.project_variables.major_version
+        mount_path = mount_path_format.format(project_name=project_name, project_version=project_version)
+        
+        lifespan = self.get_lifespan(mount_path, host, port, is_standalone_mode)
+        fastapi_app = self.create_app(lifespan)
+        return FastAPIComponents(mount_path=mount_path, lifespan=lifespan, fastapi_app=fastapi_app)
+
+    def run(self, uvicorn_args: Namespace) -> None:
+        """
+        Runs the API server with uvicorn for CLI "squirrels run"
+
+        Arguments:
+            uvicorn_args: List of arguments to pass to uvicorn.run. Supports "host", "port", and "forwarded_allow_ips"
+        """
+        host = uvicorn_args.host
+        port = uvicorn_args.port
+        forwarded_allow_ips = uvicorn_args.forwarded_allow_ips
+
+        server = self.get_fastapi_components(host=host, port=port, is_standalone_mode=True)
+
+        root_app = FastAPI(lifespan=server.lifespan)
+        root_app.mount(server.mount_path, server.fastapi_app)
+
+        mount_path_stripped = server.mount_path.rstrip("/")
+        if mount_path_stripped != "":
+            root_app.add_route("/mcp", self._mcp_app, methods=["GET", "POST"])
+        
+            @root_app.get("/", include_in_schema=False)
+            async def redirect_to_studio():
+                return RedirectResponse(url=f"{mount_path_stripped}/studio")
 
         # Run the API Server
         import uvicorn
-        
-        # Print welcome banner
-        banner_width = 80
-        print()
-        print("═" * banner_width)
-        print("👋  WELCOME TO SQUIRRELS!".center(banner_width))
-        print("═" * banner_width)
-        print()
-        print(" 🖥️  Application UI")
-        print(f"  └─ Squirrels Studio: {full_hostname}{squirrels_studio_path}")
-        print(f"     └─ (The following URL also redirects to studio: {full_hostname})")
-        print()
-        print(" 🔌 MCP Server URLs")
-        print(f"  ├─ Option 1:         {full_hostname}{project_name_version_path}/mcp")
-        print(f"  └─ Option 2:         {full_hostname}/mcp")
-        print()
-        print(" 📖 API Documentation")
-        print(f"  ├─ Swagger UI:       {full_hostname}{docs_url}")
-        print(f"  ├─ ReDoc UI:         {full_hostname}{redoc_url}")
-        print(f"  └─ OpenAPI Spec:     {full_hostname}{openapi_url}")
-        print()
-        print("─" * banner_width)
-        print("✨ Server is running! Press CTRL+C to stop.".center(banner_width))
-        print("─" * banner_width)
-        print()
-        
-        uvicorn.run(app, host=uvicorn_args.host, port=uvicorn_args.port, proxy_headers=True, forwarded_allow_ips="*")
+        uvicorn.run(
+            root_app, host=host, port=port, proxy_headers=True, forwarded_allow_ips=forwarded_allow_ips
+        )
+

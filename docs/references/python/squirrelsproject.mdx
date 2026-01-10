@@ -11,7 +11,7 @@ For example, you can create a `SquirrelsProject` object in Python (or Jupyter No
 ```python
 from squirrels import SquirrelsProject
 
-sqrl = SquirrelsProject(filepath="path/to/squirrels/project/")
+sqrl = SquirrelsProject(project_path="path/to/squirrels/project/")
 ```
 
 And then call methods on the `SquirrelsProject` object to perform various operations.
@@ -24,7 +24,7 @@ Creates a `SquirrelsProject` object.
 
 ```python
 def __init__(
-    self, *, filepath: str = ".", load_dotenv_globally: bool = False,
+    self, *, project_path: str = ".", load_dotenv_globally: bool = False,
     log_to_file: bool = False, 
     log_level: Literal["DEBUG", "INFO", "WARNING"] = "INFO", 
     log_format: Literal["text", "json"] = "text"
@@ -32,14 +32,14 @@ def __init__(
 ```
 
 <Expandable title="arguments" defaultOpen>
-  <ResponseField name="filepath" type="string" default=".">
+  <ResponseField name="project_path" type="string" default=".">
     Path to the Squirrels project folder. Defaults to current working directory.
   </ResponseField>
   <ResponseField name="load_dotenv_globally" type="boolean" default={false}>
     If True, loads variables from <code>.env</code> and <code>.env.local</code> into the process environment for the lifetime of this object.
   </ResponseField>
   <ResponseField name="log_to_file" type="boolean" default={false}>
-    Whether to enable logging to file(s) in the "logs/" folder with rotation and retention policies.
+    Whether to enable logging to file(s) in the "logs/" folder (or a custom folder). Default is from SQRL_LOGGING__TO_FILE environment variable or false.
   </ResponseField>
   <ResponseField name="log_level" type="string" default="INFO">
     Logging level to include in the log file. One of "DEBUG", "INFO", "WARNING".
@@ -328,6 +328,41 @@ async def get_compiled_model_query(
   A CompiledQueryModel object with <code>language</code>, <code>definition</code>, and <code>placeholders</code>.
 </ResponseField>
 
+### get_fastapi_components()
+
+Get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app.
+
+```python
+def get_fastapi_components(
+    self, *, no_cache: bool = False, host: str | None = None, port: int | None = None, 
+    mount_path_format: str = "/analytics/{project_name}/v{project_version}"
+) -> FastAPIComponents:
+```
+
+<Expandable title="arguments" defaultOpen>
+  <ResponseField name="no_cache" type="boolean" default={false}>
+    Whether to disable caching for parameter options, datasets, and dashboard results in the API server.
+  </ResponseField>
+  <ResponseField name="host" type="string" default="localhost">
+    The host the API server will listen on. Only used for the welcome banner.
+  </ResponseField>
+  <ResponseField name="port" type="integer" default="8000">
+    The port the API server will listen on. Only used for the welcome banner.
+  </ResponseField>
+  <ResponseField name="mount_path_format" type="string" default="/analytics/{project_name}/v{project_version}">
+    The format of the mount path. Use {project_name} and {project_version} as placeholders.
+    
+    Any underscores ("_") in the project name are replaced by dash ("-") for the API path for the {project_name} placeholder.
+  </ResponseField>
+</Expandable>
+
+<ResponseField name="returns" type="FastAPIComponents">
+  A [FastAPIComponents] object with properties:
+  - `mount_path` (str): The mount path for the Squirrels project.
+  - `lifespan` (AsyncGeneratorContextManager): The lifespan context manager for the Squirrels project.
+  - `fastapi_app` (FastAPI): The FastAPI app for the Squirrels project.
+</ResponseField>
+
 ### close()
 
 Use this method to deliberately close any database connections opened by the `SquirrelsProject` object.
@@ -353,11 +388,11 @@ from squirrels import SquirrelsProject
 sqrl = SquirrelsProject()
 
 # Initialize with specific project path
-sqrl = SquirrelsProject(filepath="path/to/project")
+sqrl = SquirrelsProject(project_path="path/to/project")
 
 # Initialize with environment variables and file logging
 sqrl = SquirrelsProject(
-    filepath="path/to/project",
+    project_path="path/to/project",
     log_format="json",
     log_level="DEBUG"
 )
@@ -567,3 +602,4 @@ sqrl.close()
 [PngDashboard]: /references/python/dashboards/pngdashboard
 [HtmlDashboard]: /references/python/dashboards/htmldashboard
 [DashboardArgs]: /references/python/arguments/dashboardargs
+[FastAPIComponents]: /references/python/types/fastapicomponents

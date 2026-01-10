@@ -182,6 +182,7 @@
                   "references/python/types/parameter",
                   "references/python/types/datasetmetadata",
                   "references/python/types/datasetresult",
+                  "references/python/types/fastapicomponents",
                   "references/python/types/textvalue"
                 ]
               }
@@ -219,18 +220,20 @@
             "pages": [
               "guides/mcp-clients"
             ]
+          },
+          {
+            "group": "Python integration",
+            "icon": "python",
+            "pages": [
+              "guides/mount-to-fastapi",
+              "guides/run-with-uvicorn"
+            ]
           }
         ]
       },
       {
         "tab": "Release Notes",
         "groups": [
-          {
-            "group": "Versions 0.6.x",
-            "pages": [
-              "releases/v0-6-0"
-            ]
-          },
           {
             "group": "Versions 0.5.x",
             "pages": [

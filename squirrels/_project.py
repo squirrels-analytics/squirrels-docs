@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 from dotenv import dotenv_values, load_dotenv
 from pathlib import Path
 import asyncio, typing as t, functools as ft, shutil, json, os
@@ -13,6 +14,11 @@ from ._py_module import PyModule
 from . import _dashboards as d, _utils as u, _constants as c, _manifest as mf, _connection_set as cs
 from . import _seeds as s, _models as m, _model_configs as mc, _model_queries as mq, _sources as so
 from . import _parameter_sets as ps, _dataset_types as dr, _logging as l
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+    from contextlib import _AsyncGeneratorContextManager
+    from ._api_server import FastAPIComponents
 
 T = t.TypeVar("T", bound=d.Dashboard)
 M = t.TypeVar("M", bound=m.DataModel)
@@ -32,9 +38,9 @@ class SquirrelsProject:
 
         Arguments:
             project_path: The path to the Squirrels project file. Defaults to the current working directory.
-            log_level: The logging level to use. Options are "DEBUG", "INFO", and "WARNING". Default is from SQRL_LOGGING__LOG_LEVEL environment variable or "INFO".
-            log_to_file: Whether to enable logging to file(s) in the "logs/" folder with rotation and retention policies. Default is False.
-            log_format: The format of the log records. Options are "text" and "json". Default is from SQRL_LOGGING__LOG_FORMAT environment variable or "text".
+            log_level: The logging level to use. Options are "DEBUG", "INFO", and "WARNING". Default is from SQRL_LOGGING__LEVEL environment variable or "INFO".
+            log_to_file: Whether to enable logging to file(s) in the "logs/" folder (or a custom folder). Default is from SQRL_LOGGING__TO_FILE environment variable or False.
+            log_format: The format of the log records. Options are "text" and "json". Default is from SQRL_LOGGING__FORMAT environment variable or "text".
         """
         self._project_path = project_path
 
@@ -44,7 +50,7 @@ class SquirrelsProject:
         
         self._logger = self._get_logger(project_path, self._env_vars, log_to_file, log_level, log_format)
         self._ensure_virtual_datalake_exists(project_path, self._vdl_catalog_db_path, self._env_vars.vdl_data_path)
-    
+        
     @staticmethod
     def _load_env_vars(project_path: str, load_dotenv_globally: bool) -> dict[str, str]:
         dotenv_files = [c.DOTENV_FILE, c.DOTENV_LOCAL_FILE]
@@ -61,11 +67,11 @@ class SquirrelsProject:
         filepath: str, env_vars: SquirrelsEnvVars, log_to_file: bool, log_level: str | None, log_format: str | None
     ) -> u.Logger:
         # CLI arguments take precedence over environment variables
-        log_level = log_level if log_level is not None else env_vars.logging_log_level
-        log_format = log_format if log_format is not None else env_vars.logging_log_format
-        log_to_file = log_to_file or u.to_bool(env_vars.logging_log_to_file)
-        log_file_size_mb = int(env_vars.logging_log_file_size_mb)
-        log_file_backup_count = int(env_vars.logging_log_file_backup_count)
+        log_level = log_level if log_level is not None else env_vars.logging_level
+        log_format = log_format if log_format is not None else env_vars.logging_format
+        log_to_file = env_vars.logging_to_file or log_to_file
+        log_file_size_mb = float(env_vars.logging_file_size_mb)
+        log_file_backup_count = int(env_vars.logging_file_backup_count)
         return l.get_logger(filepath, log_to_file, log_level, log_format, log_file_size_mb, log_file_backup_count)
 
     @staticmethod
@@ -211,6 +217,26 @@ class SquirrelsProject:
         env.filters["quote"] = quote
         env.filters["quote_and_join"] = quote_and_join
         return env
+
+    def get_fastapi_components(
+        self, *, no_cache: bool = False, host: str = "localhost", port: int = 8000, 
+        mount_path_format: str = "/analytics/{project_name}/v{project_version}"
+    ) -> "FastAPIComponents":
+        """
+        Get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app.
+
+        Arguments:
+            no_cache: Whether to disable caching for parameter options, datasets, and dashboard results in the API server.
+            host: The host the API server will listen on. Only used for the welcome banner.
+            port: The port the API server will listen on. Only used for the welcome banner.
+            mount_path_format: The format of the mount path. Use {project_name} and {project_version} as placeholders.
+        
+        Returns:
+            A FastAPIComponents object containing the mount path, lifespan, and FastAPI app.
+        """
+        from ._api_server import ApiServer
+        api_server = ApiServer(no_cache=no_cache, project=self)
+        return api_server.get_fastapi_components(host=host, port=port, mount_path_format=mount_path_format)
 
     def close(self) -> None:
         """

@@ -1,0 +1,41 @@
+---
+title: "FastAPIComponents"
+tag: "dataclass"
+description: "Data class containing components for mounting Squirrels into an existing FastAPI application"
+---
+
+This data class is returned by the `get_fastapi_components` method of [SquirrelsProject]. It contains the necessary components to mount the Squirrels project into an existing FastAPI application.
+
+## Properties
+
+<ResponseField name="mount_path" type="string">
+  The mount path for the Squirrels project, based on the project name and version, and the `mount_path_format` argument of the `get_fastapi_components` method.
+</ResponseField>
+
+<ResponseField name="lifespan" type="AsyncGeneratorContextManager">
+  The lifespan context manager for the Squirrels project. This should be used in the lifespan of the parent FastAPI application.
+</ResponseField>
+
+<ResponseField name="fastapi_app" type="FastAPI">
+  The FastAPI application instance for the Squirrels project that can be mounted.
+</ResponseField>
+
+## Example
+
+```python
+from typing import TYPE_CHECKING
+from fastapi import FastAPI
+from squirrels import SquirrelsProject
+
+if TYPE_CHECKING:
+    from squirrels.types import FastAPIComponents
+
+sqrl_proj = SquirrelsProject()
+sqrl_server: "FastAPIComponents" = sqrl_proj.get_fastapi_components()
+
+app = FastAPI(lifespan=sqrl_server.lifespan)
+app.mount(sqrl_server.mount_path, sqrl_server.fastapi_app)
+```
+
+[SquirrelsProject]: /references/python/squirrelsproject
+

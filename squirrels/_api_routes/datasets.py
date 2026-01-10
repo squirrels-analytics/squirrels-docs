@@ -11,13 +11,13 @@ from cachetools import TTLCache
 import time
 import polars as pl
 
-from .. import _constants as c, _utils as u
+from .. import _utils as u
 from .._schemas import response_models as rm
 from .._exceptions import ConfigurationError, InvalidInputError
 from .._dataset_types import DatasetResult
 from .._schemas.query_param_models import get_query_models_for_parameters, get_query_models_for_dataset
 from .._schemas.auth_models import AbstractUser
-from .base import RouteBase, XApiKeyHeader
+from .base import RouteBase
 
 
 class DatasetRoutes(RouteBase):
@@ -102,12 +102,12 @@ class DatasetRoutes(RouteBase):
         return rm.DatasetResultModel(**result.to_json(result_format)) 
     
     def setup_routes(
-        self, app: FastAPI, project_metadata_path: str, param_fields: dict, 
+        self, app: FastAPI, param_fields: dict, 
         get_parameters_definition: Callable[..., Coroutine[Any, Any, rm.ParametersModel]]
     ) -> None:
         """Setup dataset routes"""
         
-        dataset_results_path = project_metadata_path + '/dataset/{dataset}'
+        dataset_results_path = '/datasets/{dataset}'
         dataset_parameters_path = dataset_results_path + '/parameters'
         
         def validate_parameters_list(parameters: list[str] | None, entity_type: str, dataset_name: str) -> None:
@@ -142,8 +142,7 @@ class DatasetRoutes(RouteBase):
 
             @app.get(curr_parameters_path, tags=[f"Dataset '{dataset_name}'"], description=self._parameters_description, response_class=JSONResponse)
             async def get_dataset_parameters(
-                request: Request, params: QueryModelForGetParams, user=Depends(self.get_current_user), # type: ignore
-                x_api_key: str | None = XApiKeyHeader
+                request: Request, params: QueryModelForGetParams, user=Depends(self.get_current_user)
             ) -> rm.ParametersModel:
                 start = time.time()
                 curr_dataset_name = self.get_name_from_path_section(request, -2)
@@ -155,8 +154,7 @@ class DatasetRoutes(RouteBase):
 
             @app.post(curr_parameters_path, tags=[f"Dataset '{dataset_name}'"], description=self._parameters_description, response_class=JSONResponse)
             async def get_dataset_parameters_with_post(
-                request: Request, params: QueryModelForPostParams, user=Depends(self.get_current_user), # type: ignore
-                x_api_key: str | None = XApiKeyHeader
+                request: Request, params: QueryModelForPostParams, user=Depends(self.get_current_user)
             ) -> rm.ParametersModel:
                 start = time.time()
                 curr_dataset_name = self.get_name_from_path_section(request, -2)
@@ -168,8 +166,7 @@ class DatasetRoutes(RouteBase):
             
             @app.get(curr_results_path, tags=[f"Dataset '{dataset_name}'"], description=dataset_config.description, response_class=JSONResponse)
             async def get_dataset_results(
-                request: Request, params: QueryModelForGetDataset, user=Depends(self.get_current_user), # type: ignore
-                x_api_key: str | None = XApiKeyHeader
+                request: Request, params: QueryModelForGetDataset, user=Depends(self.get_current_user)
             ) -> rm.DatasetResultModel:
                 start = time.time()
                 curr_dataset_name = self.get_name_from_path_section(request, -1)
@@ -183,8 +180,7 @@ class DatasetRoutes(RouteBase):
             
             @app.post(curr_results_path, tags=[f"Dataset '{dataset_name}'"], description=dataset_config.description, response_class=JSONResponse)
             async def get_dataset_results_with_post(
-                request: Request, params: QueryModelForPostDataset, user=Depends(self.get_current_user), # type: ignore
-                x_api_key: str | None = XApiKeyHeader
+                request: Request, params: QueryModelForPostDataset, user=Depends(self.get_current_user)
             ) -> rm.DatasetResultModel:
                 start = time.time()
                 curr_dataset_name = self.get_name_from_path_section(request, -1)

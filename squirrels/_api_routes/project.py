@@ -15,10 +15,9 @@ from .._parameter_configs import APIParamFieldInfo
 from .._parameter_sets import ParameterSet
 from .._exceptions import ConfigurationError, InvalidInputError
 from .._manifest import PermissionScope, AuthType
-from .._version import __version__
 from .._schemas.query_param_models import get_query_models_for_parameters
 from .._schemas.auth_models import AbstractUser
-from .base import RouteBase, XApiKeyHeader
+from .base import RouteBase
 
 
 class ProjectRoutes(RouteBase):
@@ -67,33 +66,65 @@ class ProjectRoutes(RouteBase):
         )
         
     def setup_routes(
-        self, app: FastAPI, project_metadata_path: str, project_name_version_path: str, 
-        project_name: str, project_version: str, param_fields: dict[str, APIParamFieldInfo]
+        self, app: FastAPI, param_fields: dict[str, APIParamFieldInfo]
     ):
         """Setup project metadata routes"""
+        project_name = self.manifest_cfg.project_variables.name
+        project_version = str(self.manifest_cfg.project_variables.major_version)
+        label = self.manifest_cfg.project_variables.label
+        description = self.manifest_cfg.project_variables.description
+        auth_type = self.manifest_cfg.project_variables.auth_type.value
 
         elevated_access_level = self.env_vars.elevated_access_level
         if elevated_access_level != "admin":
             self.logger.warning(f"{c.SQRL_PERMISSIONS_ELEVATED_ACCESS_LEVEL} has been set to a non-admin access level. For security reasons, DO NOT expose the APIs for this app publicly!")
-        
+
         # Project metadata endpoint
-        @app.get(project_metadata_path, tags=["Project Metadata"], response_class=JSONResponse)
-        async def get_project_metadata(request: Request) -> rm.ProjectModel:
-            return rm.ProjectModel(
-                name=project_name,
-                version=project_version,
-                label=self.manifest_cfg.project_variables.label,
-                description=self.manifest_cfg.project_variables.description,
-                elevated_access_level=elevated_access_level,
-                redoc_path=project_name_version_path + "/redoc",
-                swagger_path=project_name_version_path + "/docs",
-                openapi_path=project_name_version_path + "/openapi.json",
-                mcp_server_path=[project_name_version_path + "/mcp", "/mcp"],
-                squirrels_version=__version__
+        @app.get("/", summary="Get project metadata and API endpoint paths", tags=["Project Metadata"], response_class=JSONResponse)
+        async def get_project_metadata(request: Request) -> rm.ProjectMetadataModel:
+            project_name_for_api = u.normalize_name_for_api(project_name)
+
+            base_url = str(request.url).rstrip("/")
+            api_routes = rm.ApiRoutesModel(
+                get_data_catalog_url = base_url + "/data-catalog",
+                get_parameters_url = base_url + "/parameters",
+                get_dataset_parameters_url = base_url + "/datasets/{dataset_name}/parameters",
+                get_dataset_results_url = base_url + "/datasets/{dataset_name}",
+                get_dashboard_parameters_url = base_url + "/dashboards/{dashboard_name}/parameters",
+                get_dashboard_results_url = base_url + "/dashboards/{dashboard_name}",
+                trigger_build_url = base_url + "/build",
+                get_query_result_url = base_url + "/query-result",
+                get_compiled_model_url = base_url + "/compiled-models/{model_name}",
+                get_user_session_url = base_url + "/auth/user-session",
+                login_url = base_url + "/auth/login",
+                list_providers_url = base_url + "/auth/providers",
+                login_with_provider_url = base_url + "/auth/providers/{provider_name}/login",
+                logout_url = base_url + "/auth/logout",
+                change_password_url = base_url + "/auth/password",
+                list_api_keys_url = base_url + "/auth/api-keys",
+                create_api_key_url = base_url + "/auth/api-keys",
+                revoke_api_key_url = base_url + "/auth/api-keys/{key_id}",
+                list_user_fields_url = base_url + "/auth/user-management/user-fields",
+                list_users_url = base_url + "/auth/user-management/users",
+                add_user_url = base_url + "/auth/user-management/users",
+                update_user_url = base_url + "/auth/user-management/users/{username}",
+                delete_user_url = base_url + "/auth/user-management/users/{username}",
+            )
+
+            return rm.ProjectMetadataModel(
+                name = project_name, 
+                name_for_api = project_name_for_api,
+                version = project_version,
+                label = label,
+                description = description,
+                auth_type = auth_type,
+                password_requirements = self.authenticator.password_requirements,
+                elevated_access_level = elevated_access_level,
+                api_routes = api_routes,
             )
         
         # Data catalog endpoint
-        data_catalog_path = project_metadata_path + '/data-catalog'
+        data_catalog_path = '/data-catalog'
         
         async def get_data_catalog0(user: AbstractUser) -> rm.CatalogModel:
             parameters = self.param_cfg_set.apply_selections(None, {}, user)
@@ -119,13 +150,12 @@ class ProjectRoutes(RouteBase):
                         dataset_configurables_list = []
                     
                     dataset_items.append(rm.DatasetItemModel(
-                        name=name, label=config.label, 
+                        name=name, name_for_api=name_for_api, 
+                        label=config.label, 
                         description=config.description,
                         schema=metadata["schema"], # type: ignore
                         configurables=dataset_configurables_list,
-                        parameters=parameters,
-                        parameters_path=f"{project_metadata_path}/dataset/{name_for_api}/parameters",
-                        result_path=f"{project_metadata_path}/dataset/{name_for_api}"
+                        parameters=parameters
                     ))
             
             dashboard_items: list[rm.DashboardItemModel] = []
@@ -150,13 +180,12 @@ class ProjectRoutes(RouteBase):
                     
                     parameters = config.parameters if config.parameters is not None else full_parameters_list
                     dashboard_items.append(rm.DashboardItemModel(
-                        name=name, label=config.label, 
+                        name=name, name_for_api=name_for_api, 
+                        label=config.label, 
                         description=config.description, 
                         result_format=dashboard_format,
                         configurables=dashboard_configurables_list,
-                        parameters=parameters,
-                        parameters_path=f"{project_metadata_path}/dashboard/{name_for_api}/parameters",
-                        result_path=f"{project_metadata_path}/dashboard/{name_for_api}"
+                        parameters=parameters
                     ))
             
             if user_has_elevated_privileges:
@@ -186,8 +215,7 @@ class ProjectRoutes(RouteBase):
         
         @app.get(data_catalog_path, tags=["Project Metadata"], summary="Get catalog of datasets and dashboards available for user")
         async def get_data_catalog(
-            request: Request, user: AbstractUser = Depends(self.get_current_user),
-            x_api_key: str | None = XApiKeyHeader
+            user: AbstractUser = Depends(self.get_current_user)
         ) -> rm.CatalogModel:
             """
             Get catalog of datasets and dashboards available for the authenticated user.
@@ -195,7 +223,7 @@ class ProjectRoutes(RouteBase):
             For admin users, this endpoint will also return detailed information about all models and their lineage in the project.
             """
             start = time.time()
-
+            
             # If authentication is required, require user to be authenticated to access catalog
             if self.manifest_cfg.project_variables.auth_type == AuthType.REQUIRED and user.access_level == "guest":
                 raise InvalidInputError(401, "user_required", "Authentication is required to access the data catalog")
@@ -213,7 +241,7 @@ class ProjectRoutes(RouteBase):
         self._get_data_catalog_for_mcp = get_data_catalog_for_mcp
         
         # Project-level parameters endpoints
-        project_level_parameters_path = project_metadata_path + '/parameters'
+        project_level_parameters_path = '/parameters'
         parameters_description = "Selections of one parameter may cascade the available options in another parameter. " \
                 "For example, if the dataset has parameters for 'country' and 'city', available options for 'city' would " \
                 "depend on the selected option 'country'. If a parameter has 'trigger_refresh' as true, provide the parameter " \
@@ -235,8 +263,7 @@ class ProjectRoutes(RouteBase):
 
         @app.get(project_level_parameters_path, tags=["Project Metadata"], description=parameters_description)
         async def get_project_parameters(
-            request: Request, params: QueryModelForGetProjectParams, user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
+            params: QueryModelForGetProjectParams, user=Depends(self.get_current_user)
         ) -> rm.ParametersModel:
             start = time.time()
             result = await get_parameters_definition(
@@ -247,8 +274,7 @@ class ProjectRoutes(RouteBase):
 
         @app.post(project_level_parameters_path, tags=["Project Metadata"], description=parameters_description)
         async def get_project_parameters_with_post(
-            request: Request, params: QueryModelForPostProjectParams, user=Depends(self.get_current_user), # type: ignore
-            x_api_key: str | None = XApiKeyHeader
+            params: QueryModelForPostProjectParams, user=Depends(self.get_current_user)
         ) -> rm.ParametersModel:
             start = time.time()
             result = await get_parameters_definition(
