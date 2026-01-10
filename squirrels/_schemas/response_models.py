@@ -14,7 +14,7 @@ class ApiKeyResponse(BaseModel):
 class ProviderResponse(BaseModel):
     name: Annotated[str, Field(examples=["my_provider"], description="The name of the provider")]
     label: Annotated[str, Field(examples=["My Provider"], description="The human-friendly display name for the provider")]
-    icon: Annotated[str, Field(examples=["https://example.com/my_provider_icon.png"], description="The URL of the provider's icon. If a path that does not start with 'http' is provided, assume it is a relative path and append it to the project's base URL.")]
+    icon: Annotated[str, Field(examples=["https://example.com/my_provider_icon.png"], description="The URL of the provider's icon. If the path starts with '/public/', it is assumed to be a static file in the project's 'resources/public/' directory.")]
     login_url: Annotated[str, Field(examples=["https://example.com/my_provider_login"], description="The URL to redirect to for provider login")]
 
 
@@ -207,7 +207,7 @@ class CompiledQueryModel(BaseModel):
 
 ## Project Metadata Response Models
 
-SAMPLE_BASE_URL = f"https://example.com/analytics/project/v1"
+SAMPLE_BASE_URL = "https://example.com/analytics/project/v1"
 SAMPLE_BASE_URL_API = f"{SAMPLE_BASE_URL}{c.LATEST_API_VERSION_MOUNT_PATH}"
 
 class PasswordRequirements(BaseModel):

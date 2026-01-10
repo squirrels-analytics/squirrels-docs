@@ -39,7 +39,8 @@ class RouteBase:
         # Authorization dependency for current user
         def get_token_from_session(request: Request) -> str | None:
             access_token = request.session.get("access_token")
-            if access_token is None: return None
+            if access_token is None:
+                return None
             
             expiry = request.session.get("access_token_expiry")
             datetime_now = datetime.now(timezone.utc).timestamp()

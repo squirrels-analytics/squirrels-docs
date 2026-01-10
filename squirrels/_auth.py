@@ -200,6 +200,7 @@ class Authenticator:
                             default = f"DEFAULT {default_val}"
                         else:
                             # If nullable is False and no default is provided, use an empty string as a placeholder default for SQLite
+                            # TODO: Use a different default value (instead of empty string) based on the column type
                             default = "DEFAULT ''" if not col.nullable else ""
                         
                         alter_stmt = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {column_type} {nullable} {default}"

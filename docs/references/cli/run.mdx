@@ -25,7 +25,7 @@ In addition to the [global options](/references/cli/index#global-options), this 
 | `--no-cache` | Do not cache any API results |
 | `--host HOST` | Host interface to bind to (default: `127.0.0.1`) |
 | `--port PORT` | Port to bind to (default: `8000`) |
-| `--forwarded-allow-ips IPs` | Comma-separated list of IP Addresses, IP Networks, or literals (e.g. UNIX Socket path) to trust with proxy headers. Use `*` to trust all IPs. Defaults to the FORWARDED_ALLOW_IPS environment variable if available, or '127.0.0.1'.|
+| `--forwarded-allow-ips IPs` | Comma-separated list of IP Addresses, IP Networks, or literals (e.g. UNIX Socket path) to trust with proxy headers. Defaults to the FORWARDED_ALLOW_IPS environment variable if available, or '127.0.0.1'. The literal '*' means trust everything.|
 
 ## Examples
 

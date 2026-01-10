@@ -145,7 +145,7 @@ def main():
     run_parser.add_argument('--port', type=int, default=8000, help="The port to run on")
     run_parser.add_argument(
         '--forwarded-allow-ips', type=str, default=None, 
-        help="Comma separated list of IP Addresses, IP Networks, or literals (e.g. UNIX Socket path) to trust with proxy headers. "
+        help="Comma-separated list of IP Addresses, IP Networks, or literals (e.g. UNIX Socket path) to trust with proxy headers. "
             "Defaults to the FORWARDED_ALLOW_IPS environment variable if available, or '127.0.0.1'. The literal '*' means trust everything."
     )
 

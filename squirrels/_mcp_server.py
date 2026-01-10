@@ -5,11 +5,10 @@ This module provides the MCP server for Squirrels projects, exposing:
 - Tools: get_data_catalog, get_dataset_parameters, get_dataset_results
 - Resources: sqrl://data-catalog
 """
-from typing import Mapping
+from typing import Any, Protocol
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from textwrap import dedent
-from typing import Any, Callable, Coroutine
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -25,6 +24,27 @@ from ._exceptions import InvalidInputError
 from ._schemas import response_models as rm
 from ._dataset_types import DatasetResult, DatasetResultFormat
 from ._api_routes.base import RouteBase
+
+
+class GetUserFromHeaders(Protocol):
+    def __call__(self, api_key: str | None, bearer_token: str | None) -> tuple[AbstractUser, float | None]:
+        ...
+
+class GetDataCatalogForMcp(Protocol):
+    async def __call__(self, user: AbstractUser) -> rm.CatalogModelForMcp:
+        ...
+
+class GetDatasetParametersForMcp(Protocol):
+    async def __call__(
+        self, dataset: str, parameter_name: str, selected_ids: str | list[str], user: AbstractUser
+    ) -> rm.ParametersModel:
+        ...
+
+class GetDatasetResultsForMcp(Protocol):
+    async def __call__(
+        self, dataset: str, parameters: str, sql_query: str | None, user: AbstractUser, headers: dict[str, str]
+    ) -> DatasetResult:
+        ...
 
 
 class McpServerBuilder:
@@ -43,16 +63,10 @@ class McpServerBuilder:
         project_name: str,
         project_label: str,
         max_rows_for_ai: int,
-        get_user_from_headers: Callable[[str | None, str | None], AbstractUser],
-        get_data_catalog_for_mcp: Callable[[AbstractUser], Coroutine[Any, Any, rm.CatalogModelForMcp]],
-        get_dataset_parameters_for_mcp: Callable[
-            [str, str, str | list[str], AbstractUser], # dataset, parameter_name, selected_ids, user
-            Coroutine[Any, Any, rm.ParametersModel]
-        ],
-        get_dataset_results_for_mcp: Callable[
-            [str, str, str | None, AbstractUser, dict[str, str]], # dataset, parameters, sql_query, user, headers
-            Coroutine[Any, Any, DatasetResult]
-        ],
+        get_user_from_headers: GetUserFromHeaders,
+        get_data_catalog_for_mcp: GetDataCatalogForMcp,
+        get_dataset_parameters_for_mcp: GetDatasetParametersForMcp,
+        get_dataset_results_for_mcp: GetDatasetResultsForMcp,
     ):
         """
         Initialize the MCP server builder.
@@ -300,7 +314,7 @@ class McpServerBuilder:
         
         try:
             mcp_headers = self._get_request_headers()
-            user = self._get_user_from_headers(api_key=mcp_headers.api_key, bearer_token=mcp_headers.bearer_token)
+            user, _ = self._get_user_from_headers(api_key=mcp_headers.api_key, bearer_token=mcp_headers.bearer_token)
             
             feature_flags = mcp_headers.feature_flags
             full_result_flag = "mcp-full-dataset-v1" in feature_flags
@@ -400,7 +414,7 @@ class McpServerBuilder:
         mcp_headers = self._get_request_headers()
         
         if str(uri) == self.catalog_resource_uri:
-            user = self._get_user_from_headers(mcp_headers.api_key, mcp_headers.bearer_token)
+            user, _ = self._get_user_from_headers(mcp_headers.api_key, mcp_headers.bearer_token)
             result = await self._get_data_catalog_for_mcp(user)
             return result.model_dump_json(by_alias=True)
         else:

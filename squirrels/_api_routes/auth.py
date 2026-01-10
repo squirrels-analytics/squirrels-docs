@@ -178,7 +178,7 @@ class AuthRoutes(RouteBase):
         
         @auth_router.post(logout_path, tags=["Authentication"])
         async def logout(request: Request):
-            """Logout the current user, and redirect to the specified URL if provided"""
+            """Logout the current user by clearing the access token and expiry from the session"""
             request.session.pop("access_token", None)
             request.session.pop("access_token_expiry", None)
             return Response(status_code=200)
