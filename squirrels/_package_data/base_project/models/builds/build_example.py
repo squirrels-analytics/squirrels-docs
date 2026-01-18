@@ -1,8 +1,8 @@
-from squirrels import arguments as args
+from squirrels.arguments import BuildModelArgs
 import polars as pl, pandas as pd
 
 
-def main(sqrl: args.BuildModelArgs) -> pl.LazyFrame | pl.DataFrame | pd.DataFrame:
+def main(sqrl: BuildModelArgs) -> pl.LazyFrame | pl.DataFrame | pd.DataFrame:
     """
     Create a build model by joining/processing sources or other build models to form a new
     Python DataFrame (using polars LazyFrame, polars DataFrame, or pandas DataFrame).

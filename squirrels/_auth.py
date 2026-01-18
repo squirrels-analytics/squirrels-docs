@@ -6,16 +6,15 @@ from passlib.context import CryptContext
 from pydantic import ValidationError
 from sqlalchemy import create_engine, Engine, func, inspect, text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, Mapped, mapped_column
-import jwt, uuid, secrets, json
+import jwt, uuid, secrets, json, base64, requests
+from jwt import PyJWKClient
 
 from ._env_vars import SquirrelsEnvVars
 from ._manifest import PermissionScope
 from ._exceptions import InvalidInputError, ConfigurationError
 from ._arguments.init_time_args import AuthProviderArgs
 from ._schemas.auth_models import (
-    CustomUserFields, AbstractUser, RegisteredUser, ApiKey, UserField, UserFieldsModel, AuthProvider, ProviderConfigs, 
-    ClientRegistrationRequest, ClientUpdateRequest, ClientDetailsResponse, ClientRegistrationResponse, 
-    ClientUpdateResponse, TokenResponse
+    CustomUserFields, AbstractUser, RegisteredUser, ApiKey, UserField, UserFieldsModel, AuthProvider, ProviderConfigs
 )
 from ._schemas import response_models as rm
 from . import _utils as u, _constants as c
@@ -68,91 +67,35 @@ class Authenticator:
             def __repr__(self):
                 return f"<DbApiKey(id='{self.id}', username='{self.username}')>"
         
-        # Define DbOAuthClient class for this instance
-        class DbOAuthClient(self.Base):
-            __tablename__ = 'oauth_clients'
-            
-            client_id: Mapped[str] = mapped_column(primary_key=True, default=lambda: uuid.uuid4().hex)
-            client_secret_hash: Mapped[str] = mapped_column(nullable=False)
-            client_name: Mapped[str] = mapped_column(nullable=False)
-            redirect_uris: Mapped[str] = mapped_column(nullable=False)  # JSON array of allowed redirect URIs
-            scope: Mapped[str] = mapped_column(nullable=False, default='read')
-            grant_types: Mapped[str] = mapped_column(nullable=False, default='authorization_code,refresh_token')
-            response_types: Mapped[str] = mapped_column(nullable=False, default='code')
-            client_type: Mapped[str] = mapped_column(nullable=False, default='confidential')  # 'confidential' or 'public'
-            registration_access_token_hash: Mapped[str] = mapped_column(nullable=False)  # Token for client management
-            created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
-            is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
-            
-            def __repr__(self):
-                return f"<DbOAuthClient(client_id='{self.client_id}', name='{self.client_name}')>"
-        
-        # Define DbAuthorizationCode class for this instance
-        class DbAuthorizationCode(self.Base):
-            __tablename__ = 'authorization_codes'
-            
-            code: Mapped[str] = mapped_column(primary_key=True, default=lambda: uuid.uuid4().hex)
-            client_id: Mapped[str] = mapped_column(ForeignKey('oauth_clients.client_id', ondelete='CASCADE'), nullable=False)
-            username: Mapped[str] = mapped_column(ForeignKey('users.username', ondelete='CASCADE'), nullable=False)
-            redirect_uri: Mapped[str] = mapped_column(nullable=False)
-            scope: Mapped[str] = mapped_column(nullable=True)
-            code_challenge: Mapped[str] = mapped_column(nullable=False)  # PKCE always required
-            code_challenge_method: Mapped[str] = mapped_column(nullable=False)  # only S256 is supported
-            created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
-            expires_at: Mapped[datetime] = mapped_column(nullable=False)  # 10 minutes from creation
-            used: Mapped[bool] = mapped_column(nullable=False, default=False)
-            
-            def __repr__(self):
-                return f"<DbAuthorizationCode(code='{self.code[:8]}...', client_id='{self.client_id}')>"
-        
-        # Define DbOAuthToken class for this instance  
-        class DbOAuthToken(self.Base):
-            __tablename__ = 'oauth_tokens'
-            
-            token_id: Mapped[str] = mapped_column(primary_key=True, default=lambda: uuid.uuid4().hex)
-            access_token_hash: Mapped[str] = mapped_column(unique=True, nullable=False)
-            refresh_token_hash: Mapped[str] = mapped_column(unique=True, nullable=True)  # NULL for client_credentials grants
-            client_id: Mapped[str] = mapped_column(ForeignKey('oauth_clients.client_id', ondelete='CASCADE'), nullable=False)
-            username: Mapped[str] = mapped_column(ForeignKey('users.username', ondelete='CASCADE'), nullable=False)
-            scope: Mapped[str] = mapped_column(nullable=True)
-            token_type: Mapped[str] = mapped_column(nullable=False, default='Bearer')
-            created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
-            access_token_expires_at: Mapped[datetime] = mapped_column(nullable=False)  # Uses SQRL_AUTH_TOKEN_EXPIRE_MINUTES
-            refresh_token_expires_at: Mapped[datetime] = mapped_column(nullable=True)  # 30 days from creation, NULL for client_credentials
-            is_revoked: Mapped[bool] = mapped_column(nullable=False, default=False)
-            
-            def __repr__(self):
-                return f"<DbOAuthToken(token_id='{self.token_id}', client_id='{self.client_id}', username='{self.username}')>"
-        
-        self.DbApiKey = DbApiKey
-        self.DbOAuthClient = DbOAuthClient
-        self.DbAuthorizationCode = DbAuthorizationCode
-        self.DbOAuthToken = DbOAuthToken
-        
         self.CustomUserFields = custom_user_fields_cls
         self.DbUser = DbUser
 
+        self.DbApiKey = DbApiKey
+        
         self.auth_providers = [provider_function(auth_args) for provider_function in provider_functions]
+        self._jwks_clients: dict[str, PyJWKClient] = {}
+        self._provider_metadata_cache: dict[str, dict] = {}
         
-        if sa_engine is None:
-            raw_sqlite_path = self.env_vars.auth_db_file_path
-            sqlite_path = u.Path(raw_sqlite_path.format(project_path=self.env_vars.project_path))
-            sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-            self.engine = create_engine(f"sqlite:///{str(sqlite_path)}")
-        else:
-            self.engine = sa_engine
-        
-        # Configure SQLite pragmas
-        with self.engine.connect() as conn:
-            conn.execute(text("PRAGMA journal_mode = WAL"))
-            conn.execute(text("PRAGMA synchronous = NORMAL"))
-            conn.commit()
-        
-        self.Base.metadata.create_all(self.engine)
+        if not self.external_only:
+            if sa_engine is None:
+                raw_sqlite_path = self.env_vars.auth_db_file_path
+                sqlite_path = u.Path(raw_sqlite_path.format(project_path=self.env_vars.project_path))
+                sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+                self.engine = create_engine(f"sqlite:///{str(sqlite_path)}")
+            else:
+                self.engine = sa_engine
+            
+            # Configure SQLite pragmas
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA journal_mode = WAL"))
+                conn.execute(text("PRAGMA synchronous = NORMAL"))
+                conn.commit()
+            
+            self.Base.metadata.create_all(self.engine)
 
-        self.Session = sessionmaker(bind=self.engine)
+            self.Session = sessionmaker(bind=self.engine)
 
-        self._initialize_db()
+            self._initialize_db()
     
     def _convert_db_user_to_user(self, db_user) -> RegisteredUser:
         """Convert a database user to an AbstractUser object"""
@@ -468,6 +411,298 @@ class Authenticator:
         
         return user, expiry
     
+    def _get_jwks_client(self, jwks_uri: str) -> PyJWKClient:
+        if jwks_uri not in self._jwks_clients:
+            self._jwks_clients[jwks_uri] = PyJWKClient(jwks_uri)
+        return self._jwks_clients[jwks_uri]
+
+    def _get_issuer_from_token(self, token: str) -> str | None:
+        try:
+            # JWT format is header.payload.signature
+            parts = token.split('.')
+            if len(parts) != 3:
+                return None
+            
+            # Base64url decode the payload (JWT uses base64url encoding)
+            payload_b64 = parts[1]
+            # Add padding if necessary: (-len % 4) yields 0..3
+            padding = '=' * ((-len(payload_b64)) % 4)
+            payload_json = base64.urlsafe_b64decode(payload_b64 + padding).decode("utf-8")
+            payload: dict = json.loads(payload_json)
+
+            issuer = payload.get("iss")
+            return issuer if isinstance(issuer, str) and issuer else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _is_jwt(token: str) -> bool:
+        if not isinstance(token, str) or not token:
+            return False
+        parts = token.split(".")
+        return len(parts) == 3 and all(parts)
+
+    def _get_provider_metadata(self, provider_name: str) -> dict:
+        provider = next((p for p in self.auth_providers if p.name == provider_name), None)
+        if provider is None:
+            raise InvalidInputError(404, "auth_provider_not_found", f"Provider '{provider_name}' not found")
+
+        metadata_url = provider.provider_configs.server_metadata_url
+        cached = self._provider_metadata_cache.get(metadata_url)
+        if isinstance(cached, dict) and cached:
+            return cached
+
+        try:
+            response = requests.get(metadata_url)
+            response.raise_for_status()
+            metadata = response.json()
+            if not isinstance(metadata, dict):
+                raise ValueError("Provider metadata was not a JSON object")
+        except Exception as e:
+            raise ConfigurationError(f"Failed to fetch metadata for provider '{provider_name}': {str(e)}")
+
+        self._provider_metadata_cache[metadata_url] = metadata
+        return metadata
+
+    def _verify_provider_jwt(
+        self,
+        provider_name: str,
+        token: str,
+        *,
+        purpose: str,
+        expected_nonce: str | None = None,
+        verify_aud: bool = True,
+    ) -> dict | None:
+        """
+        Verify a provider-issued JWT (signature + exp; aud when requested).
+        Uses OIDC discovery for jwks_uri and (best-effort) issuer validation.
+        """
+        if not self._is_jwt(token):
+            return None
+
+        provider = next((p for p in self.auth_providers if p.name == provider_name), None)
+        if provider is None:
+            raise InvalidInputError(404, "auth_provider_not_found", f"Provider '{provider_name}' not found")
+
+        metadata = self._get_provider_metadata(provider_name)
+        jwks_uri = metadata.get("jwks_uri")
+        if not isinstance(jwks_uri, str) or not jwks_uri:
+            raise ConfigurationError(f"jwks_uri not found in metadata for provider '{provider_name}'")
+
+        signing_algs = metadata.get("id_token_signing_alg_values_supported", ["RS256"])
+        if not isinstance(signing_algs, list) or not signing_algs:
+            signing_algs = ["RS256"]
+
+        jwks_client = self._get_jwks_client(jwks_uri)
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        decode_kwargs: dict[str, Any] = {
+            "key": signing_key.key,
+            "algorithms": signing_algs,
+            "options": {
+                "verify_aud": bool(verify_aud),
+                # We'll validate issuer manually to avoid brittle trailing-slash mismatches.
+                "verify_iss": False,
+            },
+        }
+        if verify_aud:
+            decode_kwargs["audience"] = provider.provider_configs.client_id
+
+        try:
+            payload = jwt.decode(token, **decode_kwargs)
+        except Exception:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        expected_issuer = metadata.get("issuer") or provider.provider_configs.server_url
+        token_issuer = payload.get("iss")
+        if isinstance(expected_issuer, str) and expected_issuer and isinstance(token_issuer, str) and token_issuer:
+            if token_issuer.rstrip("/") != expected_issuer.rstrip("/"):
+                raise InvalidInputError(
+                    401,
+                    "invalid_provider_token",
+                    f"Invalid {purpose} issuer for provider '{provider_name}'",
+                )
+
+        if expected_nonce is not None:
+            nonce_claim = payload.get("nonce")
+            if nonce_claim != expected_nonce:
+                raise InvalidInputError(
+                    401,
+                    "invalid_provider_token",
+                    f"Invalid {purpose} nonce for provider '{provider_name}'",
+                )
+
+        return payload
+
+    def get_user_info_from_token_details(self, provider_name: str, token_details: dict, *, expected_nonce: str | None = None) -> dict:
+        """
+        Determine user_info from an OAuth/OIDC token response.
+
+        Priority:
+        - token_details["user_info"] / token_details["userinfo"]
+        - verify + decode token_details["id_token"] if it's a JWT
+        - verify + decode token_details["access_token"] if it's a JWT
+        - for opaque access_token: call userinfo or introspection endpoint from provider metadata
+        """
+        for key in ("user_info", "userinfo"):
+            user_info = token_details.get(key)
+            if isinstance(user_info, dict) and user_info:
+                return user_info
+
+        id_token = token_details.get("id_token")
+        if isinstance(id_token, str):
+            if payload := self._verify_provider_jwt(
+                provider_name, id_token, purpose="id_token", expected_nonce=expected_nonce, verify_aud=True
+            ):
+                return payload
+
+        access_token = token_details.get("access_token")
+        if isinstance(access_token, str):
+            # Some providers issue JWT access tokens. Audience can vary (resource server),
+            # so we verify signature/exp and issuer, but skip aud validation.
+            if payload := self._verify_provider_jwt(
+                provider_name, access_token, purpose="access_token", expected_nonce=None, verify_aud=False
+            ):
+                return payload
+
+        if not isinstance(access_token, str) or not access_token:
+            raise InvalidInputError(
+                400,
+                "invalid_provider_user_info",
+                f"User information not found in token details for {provider_name}",
+            )
+
+        provider = next((p for p in self.auth_providers if p.name == provider_name), None)
+        if provider is None:
+            raise InvalidInputError(404, "auth_provider_not_found", f"Provider '{provider_name}' not found")
+
+        metadata: dict = self._get_provider_metadata(provider_name)
+
+        userinfo_endpoint = metadata.get("userinfo_endpoint")
+        if isinstance(userinfo_endpoint, str) and userinfo_endpoint:
+            try:
+                response = requests.get(
+                    userinfo_endpoint,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                response.raise_for_status()
+                user_info = response.json()
+                if isinstance(user_info, dict) and user_info:
+                    return user_info
+            except Exception:
+                # Fall back to introspection if available
+                pass
+
+        introspection_endpoint = metadata.get("introspection_endpoint")
+        if isinstance(introspection_endpoint, str) and introspection_endpoint:
+            try:
+                response = requests.post(
+                    introspection_endpoint,
+                    data={"token": access_token},
+                    auth=(provider.provider_configs.client_id, provider.provider_configs.client_secret),
+                )
+                response.raise_for_status()
+                token_info = response.json()
+                if isinstance(token_info, dict):
+                    if token_info.get("active") is False:
+                        raise InvalidInputError(401, "inactive_external_token", "External authorization token is inactive")
+                    return token_info
+            except InvalidInputError:
+                raise
+            except Exception:
+                # Some providers require "client_secret_post" instead of basic auth for introspection.
+                try:
+                    response = requests.post(
+                        introspection_endpoint,
+                        data={
+                            "token": access_token,
+                            "client_id": provider.provider_configs.client_id,
+                            "client_secret": provider.provider_configs.client_secret,
+                        },
+                    )
+                    response.raise_for_status()
+                    token_info = response.json()
+                    if isinstance(token_info, dict):
+                        if token_info.get("active") is False:
+                            raise InvalidInputError(401, "inactive_external_token", "External authorization token is inactive")
+                        return token_info
+                except InvalidInputError:
+                    raise
+                except Exception:
+                    pass
+
+        raise InvalidInputError(
+            400,
+            "invalid_provider_user_info",
+            f"User information not found in token details for {provider_name}",
+        )
+
+    def get_user_from_external_token(self, token: str, provider_name: str | None = None) -> tuple[RegisteredUser, float | None]:
+        """
+        Get a user from an external OAuth token by validating against provider's JWKS
+        """
+        issuer: str | None = None
+        token_is_jwt = self._is_jwt(token)
+
+        if provider_name:
+            provider = next((p for p in self.auth_providers if p.name == provider_name), None)
+        elif token_is_jwt:
+            issuer = self._get_issuer_from_token(token)
+            if not issuer:
+                raise InvalidInputError(401, "invalid_external_token", "Could not extract issuer from token")
+
+            # Match provider by issuer (server_url)
+            provider = next(
+                (p for p in self.auth_providers if p.provider_configs.server_url.rstrip("/") == issuer.rstrip("/")),
+                None,
+            )
+        else:
+            # Opaque external token: if there's exactly one configured provider, assume it.
+            provider = self.auth_providers[0] if len(self.auth_providers) == 1 else None
+
+        if provider is None:
+            if provider_name:
+                raise InvalidInputError(404, "auth_provider_not_found", f"Provider '{provider_name}' not found")
+            if token_is_jwt:
+                raise InvalidInputError(401, "auth_provider_not_found", f"No provider found for issuer: {issuer}")
+            raise InvalidInputError(401, "invalid_external_token", "Could not determine provider for external token")
+
+        # JWT external token: validate signature/exp (+ issuer) via provider JWKS
+        if token_is_jwt:
+            try:
+                payload = self._verify_provider_jwt(provider.name, token, purpose="external_token", verify_aud=False)
+            except InvalidInputError:
+                # Keep the external-auth contract stable (avoid leaking provider-specific details).
+                raise InvalidInputError(401, "invalid_external_token", "Invalid external authorization token")
+
+            if not isinstance(payload, dict) or not payload:
+                raise InvalidInputError(401, "invalid_external_token", "Invalid external authorization token")
+        else:
+            # Opaque token: reuse the existing provider userinfo/introspection logic.
+            try:
+                payload = self.get_user_info_from_token_details(provider.name, {"access_token": token})
+            except InvalidInputError as e:
+                # Normalize into the external-auth error contract.
+                if getattr(e, "error", None) == "inactive_external_token":
+                    raise
+                raise InvalidInputError(401, "invalid_external_token", "Invalid external authorization token")
+
+        if not isinstance(payload, dict) or not payload:
+            raise InvalidInputError(401, "invalid_external_token", "Invalid external authorization token")
+
+        user = provider.provider_configs.get_user(payload)
+        exp = payload.get("exp")
+        expiry: float | None
+        if isinstance(exp, (int, float)):
+            expiry = float(exp)
+        else:
+            expiry = None
+
+        return user, expiry
+
     def get_all_api_keys(self, username: str) -> list[ApiKey]:
         """
         Get the ID, title, and expiry date of all API keys for a user. Note that the ID is a hash of the API key, not the API key itself.
@@ -512,457 +747,10 @@ class Authenticator:
             user_level = PermissionScope.PROTECTED
         
         return user_level.value >= scope.value
-
-    # OAuth Client Management Methods
-
-    def generate_secret_and_hash(self) -> tuple[str, str]:
-        """Generate a secure access token and its hash"""
-        secret = secrets.token_urlsafe(64) 
-        # Truncate to 72 characters to avoid bcrypt password length limit
-        secret_hash = pwd_context.hash(secret[:72])
-        return secret, secret_hash
-    
-    def _validate_client_registration_request(self, request: ClientRegistrationRequest | ClientUpdateRequest) -> dict:
-        updates = {}
-        if request.client_name:
-            updates['client_name'] = request.client_name
-
-        # Validate redirect_uris if being updated
-        if request.redirect_uris:
-            for uri in request.redirect_uris:
-                if not self._validate_redirect_uri_format(uri):
-                    raise InvalidInputError(400, "invalid_redirect_uri", f"Invalid redirect URI format: {uri}")
-            updates['redirect_uris'] = json.dumps(request.redirect_uris)
-        
-        # Validate grant_types if being updated
-        if request.grant_types:
-            if not all(grant_type in c.SUPPORTED_GRANT_TYPES for grant_type in request.grant_types):
-                raise InvalidInputError(400, "invalid_grant_types", f"Invalid grant types. Supported grant types are: {c.SUPPORTED_GRANT_TYPES}")
-            updates['grant_types'] = ','.join(request.grant_types)
-        
-        # Validate response_types if being updated
-        if request.response_types:
-            if not all(response_type in c.SUPPORTED_RESPONSE_TYPES for response_type in request.response_types):
-                raise InvalidInputError(400, "invalid_response_types", f"Invalid response types. Supported response types are: {c.SUPPORTED_RESPONSE_TYPES}")
-            updates['response_types'] = ','.join(request.response_types)
-        
-        # Validate scope if being updated
-        if request.scope:
-            scopes = request.scope.split()
-            if not all(scope in c.SUPPORTED_SCOPES for scope in scopes):
-                raise InvalidInputError(400, "invalid_scope", f"Invalid scope. Supported scopes are: {c.SUPPORTED_SCOPES}")
-            updates['scope'] = ','.join(scopes)
-        
-        return updates
-    
-    def register_oauth_client(
-        self, request: ClientRegistrationRequest, client_management_path_format: str
-    ) -> ClientRegistrationResponse:
-        """Register a new OAuth client and return client_id, client_secret, and registration_access_token"""
-        grant_types = request.grant_types
-        if grant_types is None:
-            grant_types = ['authorization_code', 'refresh_token']
-        
-        # Validate request
-        self._validate_client_registration_request(request)
-        
-        # Generate secure client credentials and registration access token
-        client_id = secrets.token_urlsafe(16)
-        client_secret, client_secret_hash = self.generate_secret_and_hash()
-
-        registration_access_token, registration_access_token_hash = self.generate_secret_and_hash()
-        registration_client_uri = client_management_path_format.format(client_id=client_id)
-        
-        session = self.Session()
-        try:
-            oauth_client = self.DbOAuthClient(
-                client_id=client_id,
-                client_secret_hash=client_secret_hash,
-                client_name=request.client_name,
-                redirect_uris=json.dumps(request.redirect_uris),
-                scope=request.scope,
-                grant_types=','.join(grant_types),
-                registration_access_token_hash=registration_access_token_hash
-            )
-            session.add(oauth_client)
-            session.commit()
-            
-            return ClientRegistrationResponse(
-                client_id=client_id,
-                client_secret=client_secret,
-                client_name=request.client_name,
-                redirect_uris=request.redirect_uris,
-                scope=request.scope,
-                grant_types=grant_types,
-                response_types=request.response_types,
-                created_at=datetime.now(timezone.utc),
-                is_active=True,
-                registration_client_uri=registration_client_uri,
-                registration_access_token=registration_access_token,
-            )
-            
-        finally:
-            session.close()
-    
-    def get_oauth_client_details(self, client_id: str) -> ClientDetailsResponse:
-        """Get OAuth client details with parsed JSON fields"""
-        session = self.Session()
-        try:
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None:
-                raise InvalidInputError(404, "invalid_client_id", "Client not found")
-            if not client.is_active:
-                raise InvalidInputError(404, "invalid_client_id", "Client is no longer active")
-            
-            return ClientDetailsResponse(
-                client_id=client.client_id,
-                client_name=client.client_name,
-                redirect_uris=json.loads(client.redirect_uris),
-                scope=client.scope,
-                grant_types=client.grant_types.split(','),
-                response_types=client.response_types.split(','),
-                created_at=client.created_at,
-                is_active=client.is_active
-            )
-        finally:
-            session.close()
-
-    def validate_client_credentials(self, client_id: str, client_secret: str) -> bool:
-        """Validate OAuth client credentials"""
-        session = self.Session()
-        try:
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None or not client.is_active:
-                return False
-            return pwd_context.verify(client_secret[:72], client.client_secret_hash)
-        finally:
-            session.close()
-    
-    def validate_redirect_uri(self, client_id: str, redirect_uri: str) -> bool:
-        """Validate that redirect_uri is registered for the client"""
-        session = self.Session()
-        try:
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None or not client.is_active:
-                return False
-            
-            registered_uris = json.loads(client.redirect_uris)
-            return redirect_uri in registered_uris
-        finally:
-            session.close()
-    
-    def validate_registration_access_token(self, client_id: str, registration_access_token: str) -> bool:
-        """Validate registration access token for client management operations"""
-        session = self.Session()
-        try:
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None:
-                return False
-            
-            return pwd_context.verify(registration_access_token[:72], client.registration_access_token_hash)
-        finally:
-            session.close()
-    
-    def _validate_redirect_uri_format(self, uri: str) -> bool:
-        """Validate redirect URI format for security"""
-        # Basic validation - must be https (except localhost) and not contain fragments
-        if '#' in uri:
-            return False
-        
-        if uri.startswith('http://'):
-            # Only allow http for localhost/development
-            if not ('localhost' in uri or '127.0.0.1' in uri):
-                return False
-        elif not uri.startswith('https://'):
-            # Custom schemes allowed for mobile apps
-            if '://' not in uri:
-                return False
-        
-        return True
-    
-    def update_oauth_client_with_token_rotation(self, client_id: str, request: ClientUpdateRequest) -> ClientUpdateResponse:
-        """Update OAuth client metadata and rotate registration access token"""
-            
-        # Build update dictionary, excluding None values
-        updates = self._validate_client_registration_request(request)
-
-        session = self.Session()
-        try:
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None:
-                raise InvalidInputError(404, "invalid_client_id", f"OAuth client not found: {client_id}")
-            if not client.is_active and not request.is_active:
-                raise InvalidInputError(400, "invalid_request", "Cannot update a deactivated client")
-            
-            if request.is_active is not None:
-                client.is_active = request.is_active
-            
-            # Generate new registration access token
-            new_registration_access_token, new_registration_access_token_hash = self.generate_secret_and_hash()
-            
-            # Update client fields
-            for key, value in updates.items():
-                if hasattr(client, key):
-                    setattr(client, key, value)
-            
-            # Update registration access token
-            client.registration_access_token_hash = new_registration_access_token_hash
-            
-            session.commit()
-
-            return ClientUpdateResponse(
-                client_id=client.client_id,
-                client_name=client.client_name,
-                redirect_uris=json.loads(client.redirect_uris),
-                scope=client.scope,
-                grant_types=client.grant_types.split(','),
-                response_types=client.response_types.split(','),
-                created_at=client.created_at,
-                is_active=client.is_active,
-                registration_access_token=new_registration_access_token,
-            )
-            
-        finally:
-            session.close()
-    
-    def revoke_oauth_client(self, client_id: str) -> None:
-        """Revoke (deactivate) an OAuth client"""
-        session = self.Session()
-        try:
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None:
-                raise InvalidInputError(404, "client_not_found", f"OAuth client not found: {client_id}")
-            
-            client.is_active = False
-            session.commit()
-        finally:
-            session.close()
-
-    # Authorization Code Flow Methods
-
-    def create_authorization_code(
-        self, client_id: str, username: str, redirect_uri: str, scope: str, 
-        code_challenge: str, code_challenge_method: str = "S256"
-    ) -> str:
-        """Create and store an authorization code for the authorization code flow"""
-
-        # Validate client_id
-        client_details = self.get_oauth_client_details(client_id)
-        if client_details is None or not client_details.is_active:
-            raise InvalidInputError(400, "invalid_client", "Invalid or inactive client")
-        
-        # Validate redirect_uri
-        if not self.validate_redirect_uri(client_id, redirect_uri):
-            raise InvalidInputError(400, "invalid_redirect_uri", "Invalid redirect_uri for this client")
-        
-        # Validate PKCE parameters
-        if not code_challenge:
-            raise InvalidInputError(400, "invalid_request", "code_challenge is required")
-        
-        if code_challenge_method not in ["S256"]:
-            raise InvalidInputError(400, "invalid_request", "code_challenge_method must be 'S256'")
-        
-        # Generate authorization code
-        code = secrets.token_urlsafe(48)
-        
-        # Set expiration (10 minutes from now)
-        created_at = datetime.now(timezone.utc)
-        expires_at = created_at + timedelta(minutes=10)
-        
-        session = self.Session()
-        try:
-            auth_code = self.DbAuthorizationCode(
-                code=code,
-                client_id=client_id,
-                username=username,
-                redirect_uri=redirect_uri,
-                scope=scope,
-                code_challenge=code_challenge,
-                code_challenge_method=code_challenge_method,
-                created_at=created_at,
-                expires_at=expires_at,
-                used=False
-            )
-            session.add(auth_code)
-            session.commit()
-            
-            return code
-            
-        finally:
-            session.close()
-    
-    def exchange_authorization_code(
-        self, code: str, client_id: str, redirect_uri: str, code_verifier: str, access_token_expiry_minutes: int
-    ) -> TokenResponse:
-        """
-        Exchange authorization code for access and refresh tokens
-        Returns (access_token, refresh_token)
-        """
-        session = self.Session()
-        try:
-            # Get and validate authorization code
-            auth_code = session.query(self.DbAuthorizationCode).filter(
-                self.DbAuthorizationCode.code == code,
-                self.DbAuthorizationCode.client_id == client_id,
-                self.DbAuthorizationCode.expires_at >= func.now(),
-                self.DbAuthorizationCode.used == False
-            ).first()
-            
-            if auth_code is None:
-                raise InvalidInputError(400, "invalid_grant", "Invalid authorization code")
-            
-            # Validate redirect URI
-            if auth_code.redirect_uri != redirect_uri:
-                raise InvalidInputError(400, "invalid_grant", "Redirect URI mismatch")
-            
-            if not u.validate_pkce_challenge(code_verifier, auth_code.code_challenge):
-                raise InvalidInputError(400, "invalid_grant", "Invalid code_verifier")
-            
-            # Get user
-            db_user = session.get(self.DbUser, auth_code.username)
-            if db_user is None:
-                raise InvalidInputError(400, "invalid_grant", "User not found")
-            
-            # Mark authorization code as used
-            auth_code.used = True
-            
-            # Generate tokens
-            user_obj = self._convert_db_user_to_user(db_user)
-            access_token, token_expires_at = self.create_access_token(user_obj, expiry_minutes=access_token_expiry_minutes)
-            access_token_hash = pwd_context.hash(access_token[:72])
-            
-            # Generate refresh token
-            refresh_token, refresh_token_hash = self.generate_secret_and_hash()
-            refresh_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-            
-            oauth_token = self.DbOAuthToken(
-                access_token_hash=access_token_hash,
-                refresh_token_hash=refresh_token_hash,
-                client_id=client_id,
-                username=auth_code.username,
-                scope=auth_code.scope,
-                access_token_expires_at=token_expires_at,
-                refresh_token_expires_at=refresh_expires_at
-            )
-            session.add(oauth_token)
-            
-            session.commit()
-
-            return TokenResponse(
-                access_token=access_token,
-                expires_in=access_token_expiry_minutes*60,
-                refresh_token=refresh_token
-            )
-            
-        finally:
-            session.close()
-        
-    def refresh_oauth_access_token(self, refresh_token: str, client_id: str, access_token_expiry_minutes: int) -> TokenResponse:
-        """
-        Refresh OAuth access token using refresh token
-        Returns (access_token, new_refresh_token)
-        """
-        session = self.Session()
-        try:
-            # Validate client
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None or not client.is_active:
-                raise InvalidInputError(400, "invalid_client", "Invalid or inactive client")
-            
-            # Find active refresh token for this client
-            oauth_token = session.query(self.DbOAuthToken).filter(
-                self.DbOAuthToken.client_id == client_id,
-                self.DbOAuthToken.refresh_token_expires_at >= func.now(),
-                self.DbOAuthToken.is_revoked == False
-            ).first()
-            
-            # Find the token that matches our refresh token
-            if oauth_token is None or not pwd_context.verify(refresh_token[:72], oauth_token.refresh_token_hash):
-                raise InvalidInputError(400, "invalid_grant", "Invalid or expired refresh token")
-            
-            # Get user
-            db_user = session.get(self.DbUser, oauth_token.username)
-            if db_user is None:
-                raise InvalidInputError(400, "invalid_client", "User not found")
-            
-            # Check secret key is available
-            if self.secret_key is None:
-                raise ConfigurationError(f"Environment variable '{c.SQRL_SECRET_KEY}' is required for OAuth token operations")
-            
-            # Generate new tokens
-            user_obj = self._convert_db_user_to_user(db_user)
-            access_token, token_expires_at = self.create_access_token(user_obj, expiry_minutes=access_token_expiry_minutes)
-            access_token_hash = pwd_context.hash(access_token[:72])
-            
-            # Generate new refresh token
-            new_refresh_token, new_refresh_token_hash = self.generate_secret_and_hash()
-            refresh_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-            
-            # Revoke old token
-            oauth_token.is_revoked = True
-            
-            # Create new token entry
-            new_oauth_token = self.DbOAuthToken(
-                access_token_hash=access_token_hash,
-                refresh_token_hash=new_refresh_token_hash,
-                client_id=client_id,
-                username=oauth_token.username,
-                scope=oauth_token.scope,
-                access_token_expires_at=token_expires_at,
-                refresh_token_expires_at=refresh_expires_at
-            )
-            session.add(new_oauth_token)
-            
-            session.commit()
-            
-            return TokenResponse(
-                access_token=access_token,
-                expires_in=access_token_expiry_minutes*60,
-                refresh_token=new_refresh_token
-            )
-            
-        finally:
-            session.close()
-    
-    def revoke_oauth_token(self, client_id: str, token: str, token_type_hint: str | None = None) -> None:
-        """
-        Revoke an OAuth refresh token
-        token_type_hint is optional or must be 'refresh_token'. Revoking access token is not supported yet.
-        """
-        if token_type_hint and token_type_hint != 'refresh_token':
-            raise InvalidInputError(400, "invalid_request", "Only refresh tokens can be revoked")
-        
-        session = self.Session()
-        try:
-            # Validate client
-            client = session.get(self.DbOAuthClient, client_id)
-            if client is None or not client.is_active:
-                raise InvalidInputError(400, "invalid_client", "Invalid or inactive client")
-            
-            # Get all potentially matching tokens
-            oauth_tokens = session.query(self.DbOAuthToken).filter(
-                self.DbOAuthToken.client_id == client_id,
-                self.DbOAuthToken.refresh_token_expires_at >= func.now(),
-                self.DbOAuthToken.is_revoked == False
-            ).all()
-            
-            # Find the token that matches
-            oauth_token = None
-            for token_obj in oauth_tokens:
-                if pwd_context.verify(token[:72], token_obj.refresh_token_hash):
-                    oauth_token = token_obj
-                    break
-            
-            # Revoke token if found (per OAuth spec, always return success)
-            if oauth_token:
-                oauth_token.is_revoked = True
-                session.commit()
-                
-        finally:
-            session.close()
     
     def close(self) -> None:
-        self.engine.dispose()
+        if hasattr(self, "engine"):
+            self.engine.dispose()
 
 
 def provider(name: str, label: str, icon: str):

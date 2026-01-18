@@ -16,8 +16,6 @@ from . import _seeds as s, _models as m, _model_configs as mc, _model_queries as
 from . import _parameter_sets as ps, _dataset_types as dr, _logging as l
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
-    from contextlib import _AsyncGeneratorContextManager
     from ._api_server import FastAPIComponents
 
 T = t.TypeVar("T", bound=d.Dashboard)
@@ -167,10 +165,14 @@ class SquirrelsProject:
     def _auth(self) -> Authenticator:
         auth_args = AuthProviderArgs(**self._conn_args.__dict__)
         CustomUserFieldsCls, provider_functions = self._custom_user_fields_cls_and_provider_functions
-        # external_only = (self._manifest_cfg.authentication.type == mf.AuthenticationType.EXTERNAL)
+        external_only = (self._manifest_cfg.project_variables.auth_strategy == mf.AuthStrategy.EXTERNAL)
+        
+        if external_only and len(provider_functions) != 1:
+            raise ConfigurationError(f"When auth_strategy is 'external', there must be exactly one auth provider function. Found {len(provider_functions)} auth providers.")
+        
         return Authenticator(
             self._logger, self._env_vars, auth_args, provider_functions, 
-            custom_user_fields_cls=CustomUserFieldsCls, # external_only=external_only
+            custom_user_fields_cls=CustomUserFieldsCls, external_only=external_only
         )
     
     @ft.cached_property

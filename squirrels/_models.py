@@ -469,7 +469,7 @@ class QueryModel(DataModel):
                 
                 # Copy metadata from upstream column
                 col.type = upstream_col.type if col.type == "" else col.type
-                col.condition = upstream_col.condition if col.condition == "" else col.condition
+                col.condition = upstream_col.condition if col.condition == [] else col.condition
                 col.description = upstream_col.description if col.description == "" else col.description
                 col.category = upstream_col.category if col.category == mc.ColumnCategory.MISC else col.category
 
@@ -1188,10 +1188,10 @@ class ModelsIO:
         return raw_queries_by_model
 
     @classmethod
-    def load_context_func(cls, logger: u.Logger, base_path: str) -> ContextFunc:
+    def load_context_func(cls, logger: u.Logger, project_path: str) -> ContextFunc:
         start = time.time()
 
-        context_path = u.Path(base_path, c.PYCONFIGS_FOLDER, c.CONTEXT_FILE)
+        context_path = u.Path(project_path, c.PYCONFIGS_FOLDER, c.CONTEXT_FILE)
         context_func: ContextFunc = pm.PyModule(context_path).get_func_or_class(c.MAIN_FUNC, default_attr=lambda ctx, sqrl: None)
 
         logger.log_activity_time("loading file for context.py", start)

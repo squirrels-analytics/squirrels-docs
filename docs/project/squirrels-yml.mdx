@@ -48,10 +48,22 @@ project_variables:
 
     Increment this when there are breaking changes in the Squirrels datasets (e.g., removing/renaming columns). See below for more information.
   </ResponseField>
+  <ResponseField name="auth_strategy" type="string" default="managed">
+    The authentication strategy for the project. One of:
+    - `managed`: Squirrels manages users, passwords, and API keys (default)
+    - `external`: Squirrels trusts an external OAuth authorization server (exactly one provider must be configured in `pyconfigs/user.py`)
+  </ResponseField>
   <ResponseField name="auth_type" type="string" default="optional">
     The authentication enforcement for the project. One of:
     - `optional`: Authentication is optional (default). Datasets and dashboards default to `public` scope.
     - `required`: Authentication is required. Datasets and dashboards default to `protected` scope, and `public` scope is explicitly forbidden.
+
+    Defaults:
+    - If `auth_strategy` is `managed`, the default is `optional`.
+    - If `auth_strategy` is `external`, the default is `required`.
+
+    Notes:
+    - `auth_strategy: external` does not allow `auth_type: optional`.
   </ResponseField>
 </Expandable>
 

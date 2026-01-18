@@ -15,7 +15,7 @@ Creates a `ProviderConfigs` object.
 ```python
 def __init__(
     self, *, client_id: str, client_secret: str, server_url: str, 
-    server_metadata_path: str = "/.well-known/openid-configuration",
+    server_metadata_path: str = "/.well-known/oauth-authorization-server",
     client_kwargs: dict = {}, 
     get_user: Callable[[dict], RegisteredUser]
 ) -> None:
@@ -34,8 +34,8 @@ def __init__(
     URL of the OAuth server
   </ResponseField>
 
-  <ResponseField name="server_metadata_path" type="str" default="/.well-known/openid-configuration">
-    Path to the OAuth server metadata
+  <ResponseField name="server_metadata_path" type="str" default="/.well-known/oauth-authorization-server">
+    Path to the OAuth authorization server metadata (used for discovery)
   </ResponseField>
 
   <ResponseField name="client_kwargs" type="dict" default="{}">

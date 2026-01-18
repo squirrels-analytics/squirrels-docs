@@ -24,16 +24,30 @@ class _ConfigWithNameBaseModel(BaseModel):
 class AuthType(Enum):
     REQUIRED = "required"
     OPTIONAL = "optional"
+    NOTSET = "notset"
 
-# class AuthStrategy(Enum):
-#     MANAGED = "managed"
-#     EXTERNAL = "external"
+
+class AuthStrategy(Enum):
+    MANAGED = "managed"
+    EXTERNAL = "external"
+
 
 class ProjectVarsConfig(_ConfigWithNameBaseModel, extra="allow"):
     major_version: int
     label: str = ""
     description: str = ""
-    auth_type: AuthType = AuthType.OPTIONAL
+    auth_type: AuthType = AuthType.NOTSET
+    auth_strategy: AuthStrategy = AuthStrategy.MANAGED
+
+    @model_validator(mode="after")
+    def set_auth_strategy_defaults(self) -> Self:
+        if self.auth_strategy == AuthStrategy.EXTERNAL and self.auth_type == AuthType.OPTIONAL:
+            raise ValueError("auth_type can not be optional when auth_strategy is external")
+        
+        if self.auth_type == AuthType.NOTSET:
+            self.auth_type = AuthType.REQUIRED if self.auth_strategy == AuthStrategy.EXTERNAL else AuthType.OPTIONAL
+        
+        return self
 
     @model_validator(mode="after")
     def finalize_label(self) -> Self:
@@ -135,8 +149,8 @@ class ConnectionProperties(BaseModel):
 
 
 class DbConnConfig(ConnectionProperties, _ConfigWithNameBaseModel):
-    def finalize_uri(self, base_path: str) -> Self:
-        self.uri = self.uri.format(project_path=base_path)
+    def finalize_uri(self, project_path: str) -> Self:
+        self.uri = self.uri.format(project_path=project_path)
         return self
 
 
@@ -234,7 +248,7 @@ class ManifestConfig(BaseModel):
     configurables: dict[str, ConfigurablesConfig] = Field(default_factory=dict)
     selection_test_sets: dict[str, TestSetsConfig] = Field(default_factory=dict)
     datasets: dict[str, DatasetConfig] = Field(default_factory=dict)
-    base_path: str = "."
+    project_path: str = "."
 
     @field_validator("packages")
     @classmethod
@@ -263,7 +277,7 @@ class ManifestConfig(BaseModel):
     @model_validator(mode="after")
     def finalize_connections(self) -> Self:
         for conn in self.connections.values():
-            conn.finalize_uri(self.base_path)
+            conn.finalize_uri(self.project_path)
         return self
     
     @model_validator(mode="after")
@@ -335,7 +349,7 @@ class ManifestIO:
         manifest_content: dict[str, Any] = yaml.safe_load(content)
 
         try:
-            manifest_cfg = ManifestConfig(base_path=project_path, **manifest_content)
+            manifest_cfg = ManifestConfig(project_path=project_path, **manifest_content)
         except ValidationError as e:
             raise u.ConfigurationError(f"Failed to process {c.MANIFEST_FILE} file. " + str(e)) from e
         

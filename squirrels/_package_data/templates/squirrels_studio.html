@@ -2,13 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link id="favicon" rel="icon" type="image/x-icon" href="{{ sqrl_studio_base_url }}/favicon.ico" />
+    <link id="favicon" rel="icon" type="image/x-icon" href="{{ sqrl_studio_base_url }}/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Squirrels Studio</title>
     <script>
       // Optional: Set global defaults for project parameters
       window.DEFAULT_HOSTURL = '{{ host_url }}';
     </script>
+    <!-- 
+      GitHub Pages serves static files with a Cache-Control header that typically tells the browser to cache for 10 minutes.
+      The implementation of squirrels-studio-v2 should be compatible with all versions of Squirrels from v0.6.0 onwards.
+    -->
     <script type="module" crossorigin src="{{ sqrl_studio_base_url }}/assets/index.js"></script>
     <link rel="stylesheet" crossorigin href="{{ sqrl_studio_base_url }}/assets/index.css">
   </head>

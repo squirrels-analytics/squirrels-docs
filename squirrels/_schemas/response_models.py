@@ -115,7 +115,7 @@ class ColumnModel(BaseModel):
     category: Annotated[str, Field(examples=["dimension", "measure", "misc"], description="The category of the column (such as 'dimension', 'measure', or 'misc')")]
 
 class ColumnWithConditionModel(ColumnModel):
-    condition: Annotated[str | None, Field(None, examples=["My condition"], description="The condition of when the column is included (such as based on a parameter selection)")]
+    condition: Annotated[list[str] | None, Field(default=None, examples=[["My condition"]], description="The condition(s) of when the field is included (such as based on a parameter selection)")]
 
 class SchemaModel(BaseModel):
     fields: Annotated[list[ColumnModel], Field(description="A list of JSON objects containing the 'name' and 'type' for each of the columns in the result")]
@@ -229,22 +229,21 @@ class ApiRoutesModel(BaseModel):
     get_compiled_model_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/compiled-models/{{model_name}}"])]
 
     # Authentication routes
-    get_user_session_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-session"])]
-    login_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/login"])]
-    list_providers_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/providers"])]
-    login_with_provider_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/providers/{{provider_name}}/login"])]
-    logout_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/logout"])]
-    change_password_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/password"])]
-    list_api_keys_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys"])]
-    create_api_key_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys"])]
-    revoke_api_key_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys/{{key_id}}"])]
+    get_user_session_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/user-session"])]
+    list_providers_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/providers"])]
+    login_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/login"])]
+    logout_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/logout"])]
+    change_password_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/password"])]
+    list_api_keys_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys"])]
+    create_api_key_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys"])]
+    revoke_api_key_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/api-keys/{{key_id}}"])]
 
     # User management routes
-    list_user_fields_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/user-fields"])]
-    list_users_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users"])]
-    add_user_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users"])]
-    update_user_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users/{{username}}"])]
-    delete_user_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users/{{username}}"])]
+    list_user_fields_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/user-fields"])]
+    list_users_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users"])]
+    add_user_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users"])]
+    update_user_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users/{{username}}"])]
+    delete_user_url: Annotated[str | None, Field(default=None, examples=[f"{SAMPLE_BASE_URL_API}/auth/user-management/users/{{username}}"])]
 
 class ProjectMetadataModel(BaseModel):
     name: Annotated[str, Field(examples=["my_project"], description="The name of the project (usually in snake case with underscores)")]
@@ -252,8 +251,9 @@ class ProjectMetadataModel(BaseModel):
     version: Annotated[str, Field(examples=["1"], description="The version of the project. Should be a stringified integer.")]
     label: Annotated[str, Field(examples=["My Project"], description="The human-friendly display name for the project")]
     description: Annotated[str, Field(examples=["My project description"], description="The description of the project")]
+    auth_strategy: Annotated[Literal["managed", "external"], Field(examples=["managed"], description="The authentication strategy for the project")]
     auth_type: Annotated[Literal["optional", "required"], Field(examples=["optional"], description="The authentication type for the project")]
-    password_requirements: Annotated[PasswordRequirements, Field(description="The password requirements for the project")]
+    password_requirements: Annotated[PasswordRequirements | None, Field(description="The password requirements for the project")]
     elevated_access_level: Annotated[Literal["admin", "member", "guest"], Field(
         examples=["admin"], description="The access level required to access elevated features (such as configurables and data lineage)"
     )]
@@ -275,3 +275,10 @@ class ExploreEndpointsModel(BaseModel):
     documentation_routes: Annotated[DocumentationRoutesModel, Field(description="The API documentation for the base API application")]
     mcp_server_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/mcp"], description="The URL to the MCP server")]
     studio_url: Annotated[str, Field(examples=[f"{SAMPLE_BASE_URL}/studio"], description="The URL to the Squirrels Studio UI")]
+
+
+class OAuthProtectedResourceMetadata(BaseModel):
+    """OAuth 2.1 Protected Resource Metadata (RFC 9728)"""
+    resource: str = Field(description="The resource identifier URL")
+    authorization_servers: list[str] = Field(description="List of authorization server issuer identifier URLs")
+    scopes_supported: list[str] = Field(description="List of OAuth 2.1 scope values supported")

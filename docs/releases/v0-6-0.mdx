@@ -21,6 +21,20 @@ The following are fixes and new features for [v0.6.0].
 - Since the project name and version are now included in the mount path, they have been removed from the rest of the API path for all endpoints. THIS IS A BREAKING CHANGE. See the /docs endpoint of the Squirrels API server for the updated API endpoints.
 - Running with `sqrl run` (i.e., in "standalone mode") is equivalent to mounting the Squirrels APIs to the default mount path of `/analytics/{project_name}/v{project_version}` and running the main FastAPI app.
 
+**External auth strategy (`auth_strategy: external`)**
+
+- Added `project_variables.auth_strategy` in `squirrels.yml`, allowing you to choose between:
+  - `managed` (default): Squirrels-managed users, passwords, and API keys
+  - `external`: Trust an external OAuth authorization server and validate provider-issued Bearer tokens
+- When `auth_strategy` is `external`:
+  - `auth_type` defaults to `required` and `auth_type: optional` is not allowed.
+  - You must define **exactly one** auth provider in `pyconfigs/user.py`, and that provider should support **Dynamic Client Registration (DCR)**.
+  - Provider-issued Bearer tokens may be **JWTs** (validated via JWKS) or **opaque tokens** (validated via `userinfo_endpoint`, with fallback to `introspection_endpoint` when available).
+  - Certain Squirrels-managed auth endpoints are disabled (e.g., username/password login, API keys, user management).
+  - Environment variables used for managed auth (such as `SQRL_SECRET__ADMIN_PASSWORD`, `SQRL_AUTH__DB_FILE_PATH`, and `SQRL_AUTH__TOKEN_EXPIRE_MINUTES`) do not apply.
+- Added `/.well-known/oauth-protected-resource` (OAuth 2.1 Protected Resource Metadata, RFC 9728) to help OAuth-aware clients discover the authorization server(s) when running in standalone mode.
+- MCP server auth: when `auth_strategy` is `external` and `auth_type` is `required`, the MCP server requires `Authorization: Bearer <token>` and responds with HTTP 401 + `WWW-Authenticate` pointing to the protected resource metadata endpoint.
+
 **Dashboard context variables and configurables**
 
 - Dashboards now have access to context variables defined in `context.py`. This allows dashboards to use dynamic logic based on parameter selections and user attributes, similar to how datasets work.

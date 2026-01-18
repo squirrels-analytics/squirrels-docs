@@ -14,7 +14,7 @@ from .._schemas import response_models as rm
 from .._parameter_configs import APIParamFieldInfo
 from .._parameter_sets import ParameterSet
 from .._exceptions import ConfigurationError, InvalidInputError
-from .._manifest import PermissionScope, AuthType
+from .._manifest import PermissionScope, AuthType, AuthStrategy
 from .._schemas.query_param_models import get_query_models_for_parameters
 from .._schemas.auth_models import AbstractUser
 from .base import RouteBase
@@ -83,6 +83,8 @@ class ProjectRoutes(RouteBase):
         @app.get("/", summary="Get project metadata and API endpoint paths", tags=["Project Metadata"], response_class=JSONResponse)
         async def get_project_metadata(request: Request) -> rm.ProjectMetadataModel:
             project_name_for_api = u.normalize_name_for_api(project_name)
+            auth_strategy = self.manifest_cfg.project_variables.auth_strategy
+            is_external = (auth_strategy == AuthStrategy.EXTERNAL)
 
             base_url = str(request.url).rstrip("/")
             api_routes = rm.ApiRoutesModel(
@@ -96,19 +98,18 @@ class ProjectRoutes(RouteBase):
                 get_query_result_url = base_url + "/query-result",
                 get_compiled_model_url = base_url + "/compiled-models/{model_name}",
                 get_user_session_url = base_url + "/auth/user-session",
-                login_url = base_url + "/auth/login",
                 list_providers_url = base_url + "/auth/providers",
-                login_with_provider_url = base_url + "/auth/providers/{provider_name}/login",
-                logout_url = base_url + "/auth/logout",
-                change_password_url = base_url + "/auth/password",
-                list_api_keys_url = base_url + "/auth/api-keys",
-                create_api_key_url = base_url + "/auth/api-keys",
-                revoke_api_key_url = base_url + "/auth/api-keys/{key_id}",
-                list_user_fields_url = base_url + "/auth/user-management/user-fields",
-                list_users_url = base_url + "/auth/user-management/users",
-                add_user_url = base_url + "/auth/user-management/users",
-                update_user_url = base_url + "/auth/user-management/users/{username}",
-                delete_user_url = base_url + "/auth/user-management/users/{username}",
+                login_url = None if is_external else base_url + "/auth/login",
+                logout_url = None if is_external else base_url + "/auth/logout",
+                change_password_url = None if is_external else base_url + "/auth/password",
+                list_api_keys_url = None if is_external else base_url + "/auth/api-keys",
+                create_api_key_url = None if is_external else base_url + "/auth/api-keys",
+                revoke_api_key_url = None if is_external else base_url + "/auth/api-keys/{key_id}",
+                list_user_fields_url = None if is_external else base_url + "/auth/user-management/user-fields",
+                list_users_url = None if is_external else base_url + "/auth/user-management/users",
+                add_user_url = None if is_external else base_url + "/auth/user-management/users",
+                update_user_url = None if is_external else base_url + "/auth/user-management/users/{username}",
+                delete_user_url = None if is_external else base_url + "/auth/user-management/users/{username}",
             )
 
             return rm.ProjectMetadataModel(
@@ -117,8 +118,9 @@ class ProjectRoutes(RouteBase):
                 version = project_version,
                 label = label,
                 description = description,
+                auth_strategy = auth_strategy.value,
                 auth_type = auth_type,
-                password_requirements = self.authenticator.password_requirements,
+                password_requirements = None if is_external else self.authenticator.password_requirements,
                 elevated_access_level = elevated_access_level,
                 api_routes = api_routes,
             )

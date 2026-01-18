@@ -78,7 +78,7 @@ class _CustomJsonFormatter(l.Formatter):
 
 
 def get_logger(
-    base_path: str, log_to_file: bool | str, log_level: str, log_format: str, log_file_size_mb: float, log_file_backup_count: int
+    project_path: str, log_to_file: bool | str, log_level: str, log_format: str, log_file_size_mb: float, log_file_backup_count: int
 ) -> u.Logger:
     logger = u.Logger(name=uuid4().hex, level=log_level.upper())
 
@@ -96,9 +96,9 @@ def get_logger(
     
     if log_to_file:
         if isinstance(log_to_file, str):
-            log_file_path = Path(base_path, log_to_file, c.LOGS_FILE)
+            log_file_path = Path(project_path, log_to_file, c.LOGS_FILE)
         else:
-            log_file_path = Path(base_path, c.LOGS_FOLDER, c.LOGS_FILE)
+            log_file_path = Path(project_path, c.LOGS_FOLDER, c.LOGS_FILE)
         
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
 

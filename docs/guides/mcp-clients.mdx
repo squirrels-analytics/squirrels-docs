@@ -13,6 +13,14 @@ https://mortgage-squirrels-example.duckdns.org/mcp
 
 You can replace this URL with the MCP server URL for your own Squirrels project when working with this guide (such as `http://localhost:8000/mcp`).
 
+## Authentication header (when required)
+
+If your project uses `auth_type: required`, your MCP client must authenticate.
+
+- For `auth_strategy: external`, MCP requests must include `Authorization: Bearer <token>` where `<token>` is a provider-issued OAuth access token (or JWT).
+  - If authentication is missing/invalid, the server responds with HTTP 401 and a `WWW-Authenticate` header that includes a `resource_metadata` URL (served at `/.well-known/oauth-protected-resource`). MCP clients that support OAuth discovery can use this to find the correct authorization server to authenticate with and fetch the access token from first.
+- For `auth_strategy: managed`, MCP requests can use an API key issued by the Squirrels API server.
+
 ## MCP clients
 
 Choose which AI tool you want to use to interact with your Squirrels project.

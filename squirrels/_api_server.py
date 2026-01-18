@@ -17,6 +17,8 @@ import io, time, mimetypes, traceback, asyncio
 from . import _constants as c, _utils as u, _parameter_sets as ps
 from ._schemas import response_models as rm
 from ._exceptions import InvalidInputError, ConfigurationError, FileExecutionError
+from ._http_error_responses import invalid_input_error_to_json_response
+from ._manifest import AuthStrategy, AuthType
 from ._request_context import set_request_id
 from ._mcp_server import McpServerBuilder
 
@@ -228,7 +230,8 @@ class ApiServer:
         print(" 🖥️  Application UI")
         print(f"  └─ Squirrels Studio: {full_hostname}{mount_path_stripped}/studio")
         if show_multiple_options:
-            print(f"     └─ (The following URL also redirects to studio: {full_hostname})")
+            print(f"     ├─ The root path also redirects to Squirrels Studio: {full_hostname}/")
+        print(    f"     └─ This requires an internet connection to load the JS and CSS files")
         print()
         print(" 🔌 MCP Server URLs")
         if show_multiple_options:
@@ -274,7 +277,12 @@ class ApiServer:
         return lifespan
 
 
-    def create_app(self, lifespan: "_AsyncGeneratorContextManager") -> FastAPI:
+    def create_app(
+        self,
+        lifespan: "_AsyncGeneratorContextManager",
+        *,
+        mount_path: str = ""
+    ) -> FastAPI:
         """
         Create the FastAPI app for the Squirrels project.
         """
@@ -286,6 +294,9 @@ class ApiServer:
         param_fields = self.param_cfg_set.get_all_api_field_info()
         tags_metadata = self._get_tags_metadata()
         
+        mount_path_stripped = mount_path.rstrip("/")
+        api_v0_mount_path = "/api/0"
+
         app = FastAPI(
             title=f"Squirrels for '{project_label}'",
             lifespan=lifespan
@@ -329,8 +340,12 @@ class ApiServer:
             except InvalidInputError as exc:
                 message = str(exc)
                 self.logger.error(message)
-                response = JSONResponse(
-                    status_code=exc.status_code, content={"error": exc.error, "error_description": exc.error_description}
+                strip_path_suffix = f"{mount_path_stripped}{api_v0_mount_path}"
+                response = invalid_input_error_to_json_response(
+                    request,
+                    exc,
+                    oauth_resource_metadata_path="/.well-known/oauth-protected-resource",
+                    strip_path_suffix=strip_path_suffix,
                 )
             except FileExecutionError as exc:
                 traceback.print_exception(exc.error, file=buffer)
@@ -382,8 +397,7 @@ class ApiServer:
         self.dashboard_routes.setup_routes(api_v0_app, param_fields, get_parameters_definition)
         # self.oauth2_routes.setup_routes(api_v0_app)
         self.auth_routes.setup_routes(api_v0_app)
-        
-        api_v0_mount_path = "/api/0"
+
         app.mount(api_v0_mount_path, api_v0_app)
 
         @app.get("/health", summary="Health check endpoint")
@@ -391,6 +405,10 @@ class ApiServer:
             return PlainTextResponse(status_code=200, content="OK")
         
         # Build the MCP server after routes are set up
+        enforce_mcp_oauth = (
+            self.manifest_cfg.project_variables.auth_strategy == AuthStrategy.EXTERNAL
+            and self.manifest_cfg.project_variables.auth_type == AuthType.REQUIRED
+        )
         self._mcp_builder = McpServerBuilder(
             project_name=project_name,
             project_label=project_label,
@@ -399,6 +417,9 @@ class ApiServer:
             get_data_catalog_for_mcp=self.project_routes._get_data_catalog_for_mcp,
             get_dataset_parameters_for_mcp=self.dataset_routes._get_dataset_parameters_for_mcp,
             get_dataset_results_for_mcp=self.dataset_routes._get_dataset_results_for_mcp,
+            enforce_oauth_bearer=enforce_mcp_oauth,
+            oauth_resource_metadata_path="/.well-known/oauth-protected-resource",
+            www_authenticate_strip_path_suffix=f"{mount_path_stripped}/mcp",
         )
         self._mcp_app = self._mcp_builder.get_asgi_app()
 
@@ -443,8 +464,6 @@ class ApiServer:
                 mcp_server_url=base_url + "/mcp",
                 studio_url=base_url + "/studio",
             )
-
-        app.add_middleware(SmartCORSMiddleware, allowed_credential_origins=allowed_credential_origins, configurables_as_headers=configurables_as_headers)
         
         self.logger.log_activity_time("creating app server", start)
         return app
@@ -462,7 +481,7 @@ class ApiServer:
         mount_path = mount_path_format.format(project_name=project_name, project_version=project_version)
         
         lifespan = self.get_lifespan(mount_path, host, port, is_standalone_mode)
-        fastapi_app = self.create_app(lifespan)
+        fastapi_app = self.create_app(lifespan, mount_path=mount_path)
         return FastAPIComponents(mount_path=mount_path, lifespan=lifespan, fastapi_app=fastapi_app)
 
     def run(self, uvicorn_args: Namespace) -> None:
@@ -481,10 +500,38 @@ class ApiServer:
         root_app = FastAPI(lifespan=server.lifespan)
         root_app.mount(server.mount_path, server.fastapi_app)
 
+        # Enable CORS handling on the root app so preflight requests (OPTIONS)
+        # to top-level endpoints like `/.well-known/oauth-protected-resource` do not 405.
+        allowed_credential_origins = self.env_vars.auth_credential_origins
+        configurables_as_headers: list[str] = []
+        for name in self.manifest_cfg.configurables.keys():
+            configurables_as_headers.append(f"x-config-{name}")  # underscore version
+            configurables_as_headers.append(f"x-config-{u.normalize_name_for_api(name)}")  # dash version
+        
+        root_app.add_middleware(
+            SmartCORSMiddleware,
+            allowed_credential_origins=allowed_credential_origins,
+            configurables_as_headers=configurables_as_headers,
+        )
+
+        @root_app.get("/.well-known/oauth-protected-resource", tags=["Authentication"])
+        async def oauth_protected_resource(request: Request) -> rm.OAuthProtectedResourceMetadata:
+            resource = str(request.base_url).rstrip("/")
+
+            auth_servers: list[str] = []
+            for provider in self.project._auth.auth_providers:
+                auth_servers.append(provider.provider_configs.server_url)
+
+            return rm.OAuthProtectedResourceMetadata(
+                resource=resource,
+                authorization_servers=list(set(auth_servers)),
+                scopes_supported=["email", "profile"],
+            )
+
         mount_path_stripped = server.mount_path.rstrip("/")
         if mount_path_stripped != "":
             root_app.add_route("/mcp", self._mcp_app, methods=["GET", "POST"])
-        
+            
             @root_app.get("/", include_in_schema=False)
             async def redirect_to_studio():
                 return RedirectResponse(url=f"{mount_path_stripped}/studio")

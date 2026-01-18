@@ -15,7 +15,7 @@ from .._exceptions import InvalidInputError
 from .._project import SquirrelsProject
 from .._schemas.auth_models import AbstractUser
 from .._dataset_types import DatasetResultFormat
-from .._manifest import AuthType
+from .._manifest import AuthType, AuthStrategy
 
 T = TypeVar('T')
 
@@ -53,8 +53,16 @@ class RouteBase:
                 return None
         
         def get_user_from_headers(api_key: str | None, bearer_token: str | None) -> tuple[AbstractUser, float | None]:
-            final_token = api_key if api_key else bearer_token
-            user, expiry = self.authenticator.get_user_from_token(final_token)
+            auth_strategy = self.manifest_cfg.project_variables.auth_strategy
+            if (auth_strategy == AuthStrategy.EXTERNAL):
+                if not bearer_token:
+                    return self.project._guest_user, None
+                
+                user, expiry = self.authenticator.get_user_from_external_token(bearer_token)
+            else:
+                final_token = api_key if api_key else bearer_token
+                user, expiry = self.authenticator.get_user_from_token(final_token)
+            
             if user is None:
                 user = self.project._guest_user
             

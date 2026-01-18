@@ -141,14 +141,14 @@ class DashboardsIO:
 
     @classmethod
     def load_files(
-        cls, logger: u.Logger, base_path: str, auth_type: AuthType = AuthType.OPTIONAL, project_configurables: dict[str, Any] = {}
+        cls, logger: u.Logger, project_path: str, auth_type: AuthType = AuthType.OPTIONAL, project_configurables: dict[str, Any] = {}
     ) -> dict[str, DashboardDefinition]:
         start = time.time()
         
         default_scope = PermissionScope.PROTECTED if auth_type == AuthType.REQUIRED else PermissionScope.PUBLIC
         
         dashboards_by_name = {}
-        for dp, _, filenames in os.walk(u.Path(base_path, c.DASHBOARDS_FOLDER)):
+        for dp, _, filenames in os.walk(u.Path(project_path, c.DASHBOARDS_FOLDER)):
             for file in filenames:
                 filepath = os.path.join(dp, file)
                 file_stem, extension = os.path.splitext(file)
