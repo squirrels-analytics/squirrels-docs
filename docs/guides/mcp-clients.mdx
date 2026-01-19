@@ -5,20 +5,15 @@ description: "Learn how to connect MCP-supported AI tools (such as Claude Deskto
 
 Every Squirrels project has an MCP server running at `/mcp` automatically. Thus, AI tools that support the Model Context Protocol can be used to ask questions about the datasets configured in a Squirrels project.
 
-To make it easy for anyone to follow along, we will use the following MCP server URL for a [mortgage analytics Squirrels project](https://mortgage-squirrels-example.duckdns.org/) that is publicly accessible.
+This guide assumes that you have a Squirrels server running at `http://localhost:8000` in standalone mode.
 
-```text
-https://mortgage-squirrels-example.duckdns.org/mcp
-```
-
-You can replace this URL with the MCP server URL for your own Squirrels project when working with this guide (such as `http://localhost:8000/mcp`).
-
-## Authentication header (when required)
+## Authorization header (when required)
 
 If your project uses `auth_type: required`, your MCP client must authenticate.
 
 - For `auth_strategy: external`, MCP requests must include `Authorization: Bearer <token>` where `<token>` is a provider-issued OAuth access token (or JWT).
-  - If authentication is missing/invalid, the server responds with HTTP 401 and a `WWW-Authenticate` header that includes a `resource_metadata` URL (served at `/.well-known/oauth-protected-resource`). MCP clients that support OAuth discovery can use this to find the correct authorization server to authenticate with and fetch the access token from first.
+  - If authentication is missing/invalid, the server responds with HTTP 401 and a `WWW-Authenticate` header that includes a `resource_metadata` URL (usually served at `/.well-known/oauth-protected-resource`).
+  - MCP clients that support OAuth discovery can use this to find the correct authorization server to authenticate with and fetch the access token from first.
 - For `auth_strategy: managed`, MCP requests can use an API key issued by the Squirrels API server.
 
 ## MCP clients
@@ -48,11 +43,11 @@ Choose which AI tool you want to use to interact with your Squirrels project.
     ```json
     {
       "mcpServers": {
-        "mortgage-analytics": {
+        "squirrels-analytics": {
           "command": "npx",
           "args": [
             "-y", "mcp-remote", 
-            "https://mortgage-squirrels-example.duckdns.org/mcp"
+            "http://localhost:8000/mcp"
           ]
         }
       }
@@ -81,10 +76,10 @@ Choose which AI tool you want to use to interact with your Squirrels project.
 
     **Steps:**
 
-    1. Add the MCP server to Claude Code with name "mortgage-analytics" and URL `https://mortgage-squirrels-example.duckdns.org/mcp`.
+    1. Add the MCP server to Claude Code with name "squirrels-analytics" and URL `http://localhost:8000/mcp`.
 
     ```bash
-    claude mcp add --transport http mortgage-analytics https://mortgage-squirrels-example.duckdns.org/mcp
+    claude mcp add --transport http squirrels-analytics http://localhost:8000/mcp
     ```
 
     2. Use the following commands to confirm details about the MCP server.
@@ -94,7 +89,7 @@ Choose which AI tool you want to use to interact with your Squirrels project.
     claude mcp list
 
     # Get details about the MCP server you just added
-    claude mcp get mortgage-analytics
+    claude mcp get squirrels-analytics
     ```
 
     3. Start Claude Code by running `claude` in the terminal. You can check the server status by typing `/mcp` in the chat input.
@@ -132,8 +127,8 @@ Choose which AI tool you want to use to interact with your Squirrels project.
     ```json
     {
       "mcpServers": {
-        "mortgage-analytics": {
-          "url": "https://mortgage-squirrels-example.duckdns.org/mcp",
+        "squirrels-analytics": {
+          "url": "http://localhost:8000/mcp",
           "headers": {}
         }
       }
@@ -163,8 +158,8 @@ Choose which AI tool you want to use to interact with your Squirrels project.
     ```json
     {
       "servers": {
-        "mortgage-analytics": {
-          "url": "https://mortgage-squirrels-example.duckdns.org/mcp",
+        "squirrels-analytics": {
+          "url": "http://localhost:8000/mcp",
           "headers": {}
         }
       }
@@ -190,12 +185,4 @@ What datasets do you have access to?
 What tools do you have access to?
 ```
 
-The following are sample prompts specific to the mortgage analytics Squirrels project:
-
-```text wrap
-Suppose I have a 500K loan amount at 5% mortgage rate for 20 years remaining. What would be the monthly mortgage payment?
-```
-
-```text wrap
-Suppose I have a 500K loan amount at 5% mortgage rate for 20 years remaining. Should I pay off the full 500K now, or keep the mortgage and invest it in the stock market instead? Run 1000 simulation trials to answer.
-```
+Other prompts to ask depend on the datasets in your Squirrels project.

@@ -55,7 +55,7 @@ class DatasetRoutes(RouteBase):
         )
     
     async def _get_dataset_result_object(
-        self, dataset_name: str, user: AbstractUser, params: dict, headers: dict[str, str]
+        self, dataset_name: str, user: AbstractUser, params: dict, configurables: tuple[tuple[str, str], ...]
     ) -> DatasetResult:
         """Get dataset result object"""
         # self._validate_request_params(all_request_params, params, headers)
@@ -65,8 +65,8 @@ class DatasetRoutes(RouteBase):
         selections = self.get_selections_as_immutable(params, uncached_keys)
         
         user_has_elevated_privileges = u.user_has_elevated_privileges(user.access_level, self.env_vars.elevated_access_level)
-        configurables = self.get_configurables_from_headers(headers) if user_has_elevated_privileges else tuple()
-        result = await get_dataset_function(dataset_name, user, selections, configurables)
+        configurables_if_elevated: tuple[tuple[str, str], ...] = configurables if user_has_elevated_privileges else tuple()
+        result = await get_dataset_function(dataset_name, user, selections, configurables_if_elevated)
         
         # Apply optional final SQL transformation before select/limit/offset
         sql_query = params.get("x_sql_query")
@@ -95,8 +95,9 @@ class DatasetRoutes(RouteBase):
     async def _get_dataset_results_definition(
         self, dataset_name: str, user: AbstractUser, params: dict, headers: dict[str, str]
     ) -> rm.DatasetResultModel:
-        """Get dataset results definition"""
-        result = await self._get_dataset_result_object(dataset_name, user, params, headers)
+        """Get dataset results definition"""        
+        configurables = self.get_configurables_from_headers(headers)
+        result = await self._get_dataset_result_object(dataset_name, user, params, configurables)
 
         result_format = self.extract_orientation_offset_and_limit(params)
         return rm.DatasetResultModel(**result.to_json(result_format)) 
@@ -206,12 +207,12 @@ class DatasetRoutes(RouteBase):
             return await get_dataset_parameters_updates(dataset_name, user, parameters)
         
         async def get_dataset_results_for_mcp(
-            dataset: str, parameters: dict[str, Any], sql_query: str | None, user: AbstractUser, headers: dict[str, str]
+            dataset: str, parameters: dict[str, Any], sql_query: str | None, user: AbstractUser, configurables: tuple[tuple[str, str], ...]
         ) -> DatasetResult:
-            """Get dataset results for MCP tools. Takes user and headers."""
+            """Get dataset results for MCP tools. Takes user and configurables."""
             dataset_name = u.normalize_name(dataset)
             parameters.update({ "x_sql_query": sql_query })
-            return await self._get_dataset_result_object(dataset_name, user, parameters, headers)
+            return await self._get_dataset_result_object(dataset_name, user, parameters, configurables)
         
         # Store the MCP functions as instance attributes for access by McpServerBuilder
         self._get_dataset_parameters_for_mcp = get_dataset_parameters_for_mcp

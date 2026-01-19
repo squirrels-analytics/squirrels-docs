@@ -40,8 +40,9 @@ class SquirrelsProject:
             log_to_file: Whether to enable logging to file(s) in the "logs/" folder (or a custom folder). Default is from SQRL_LOGGING__TO_FILE environment variable or False.
             log_format: The format of the log records. Options are "text" and "json". Default is from SQRL_LOGGING__FORMAT environment variable or "text".
         """
-        self._project_path = project_path
+        project_path = str(Path(project_path).resolve())
 
+        self._project_path = project_path
         self._env_vars_unformatted = self._load_env_vars(project_path, load_dotenv_globally)
         self._env_vars = SquirrelsEnvVars(project_path=project_path, **self._env_vars_unformatted)
         self._vdl_catalog_db_path = self._env_vars.vdl_catalog_db_path
@@ -149,7 +150,7 @@ class SquirrelsProject:
     @ft.cached_property
     def _custom_user_fields_cls_and_provider_functions(self) -> tuple[type[CustomUserFields], list[ProviderFunctionType]]:
         user_module_path = u.Path(self._project_path, c.PYCONFIGS_FOLDER, c.USER_FILE)
-        user_module = PyModule(user_module_path)
+        user_module = PyModule(user_module_path, project_path=self._project_path)
         
         # Load CustomUserFields class (adds to Authenticator.providers as side effect)
         CustomUserFieldsCls = user_module.get_func_or_class("CustomUserFields", default_attr=CustomUserFields)
@@ -246,6 +247,9 @@ class SquirrelsProject:
         """
         self._conn_set.dispose()
         self._auth.close()
+
+    def __enter__(self):
+        return self
 
     def __exit__(self, exc_type, exc_val, traceback):
         self.close()

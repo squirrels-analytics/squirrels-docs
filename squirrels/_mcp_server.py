@@ -20,6 +20,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 import mcp.types as types
 import json
 
+from . import _utils as u
 from ._schemas.auth_models import AbstractUser
 from ._schemas.request_models import McpRequestHeaders
 from ._exceptions import InvalidInputError
@@ -45,7 +46,7 @@ class GetDatasetParametersForMcp(Protocol):
 
 class GetDatasetResultsForMcp(Protocol):
     async def __call__(
-        self, dataset: str, parameters: str, sql_query: str | None, user: AbstractUser, headers: dict[str, str]
+        self, dataset: str, parameters: str, sql_query: str | None, user: AbstractUser, configurables: dict[str, str]
     ) -> DatasetResult:
         ...
 
@@ -157,6 +158,53 @@ class McpServerBuilder:
             pass
         
         return McpRequestHeaders()
+    
+    def _get_request_metadata(self) -> dict[str, Any]:
+        """
+        Metadata of the current MCP request as a dictionary.
+        
+        Returns:
+            A dictionary of the request metadata
+        """
+        request_metadata = self._server.request_context.meta
+        return request_metadata.model_dump(mode="json")
+
+    def _get_configurables(self, mcp_headers: McpRequestHeaders) -> tuple[tuple[str, str], ...]:
+        """
+        Extract configurables from headers and metadata.
+        """
+        prefix = "x-config-"
+        cfg_dict: dict[str, str] = {}
+        
+        # 1. Extract from headers
+        for key, value in mcp_headers.raw_headers.items():
+            key_lower = str(key).lower()
+            if key_lower.startswith(prefix):
+                cfg_name_raw = key_lower[len(prefix):]
+                cfg_name_normalized = u.normalize_name(cfg_name_raw)
+                
+                if cfg_name_normalized in cfg_dict:
+                    raise InvalidInputError(
+                        400, "duplicate_configurable",
+                        f"Configurable '{cfg_name_normalized}' specified multiple times in headers."
+                    )
+                cfg_dict[cfg_name_normalized] = str(value)
+
+        # 2. Extract from metadata
+        metadata = self._get_request_metadata()
+        for key, value in metadata.items():
+            if key == "progressToken":
+                continue
+            
+            cfg_name_normalized = u.normalize_name(key)
+            if cfg_name_normalized in cfg_dict:
+                raise InvalidInputError(
+                    400, "duplicate_configurable",
+                    f"Configurable '{cfg_name_normalized}' specified multiple times (header and metadata)."
+                )
+            cfg_dict[cfg_name_normalized] = str(value)
+
+        return tuple(cfg_dict.items())
 
     def _get_validated_user_for_request(self, mcp_headers: McpRequestHeaders) -> tuple[AbstractUser, float | None]:
         """
@@ -400,8 +448,9 @@ class McpServerBuilder:
                     raise InvalidInputError(400, "invalid_limit", f"The 'limit' argument must be less than or equal to {self.max_rows_for_ai}.")
                 
                 # get dataset result object
+                configurables = self._get_configurables(mcp_headers)
                 result_obj = await self._get_dataset_results_for_mcp(
-                    dataset, parameters, sql_query, user, mcp_headers.raw_headers
+                    dataset, parameters, sql_query, user, configurables
                 )
 
                 # format dataset result object

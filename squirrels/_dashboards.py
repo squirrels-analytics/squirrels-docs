@@ -114,11 +114,12 @@ class DashboardDefinition:
     dashboard_name: str
     filepath: str
     config: DashboardConfig
+    project_path: str
 
     @property
     def dashboard_func(self) -> Callable[[DashboardArgs], Coroutine[Any, Any, Dashboard]]:
         if not hasattr(self, '_dashboard_func'):
-            module = PyModule(self.filepath)
+            module = PyModule(self.filepath, project_path=self.project_path)
             self._dashboard_func = module.get_func_or_class(c.MAIN_FUNC)
         return self._dashboard_func
 
@@ -172,7 +173,7 @@ class DashboardsIO:
                 if auth_type == AuthType.REQUIRED and config.scope == PermissionScope.PUBLIC:
                     raise ConfigurationError(f'Authentication is required, so dashboard "{file_stem}" cannot be public. Update the scope in "{yml_path}"')
                 
-                dashboards_by_name[file_stem] = DashboardDefinition(file_stem, filepath, config)
+                dashboards_by_name[file_stem] = DashboardDefinition(file_stem, filepath, config, project_path)
                 
         logger.log_activity_time("loading files for dashboards", start)
         return dashboards_by_name

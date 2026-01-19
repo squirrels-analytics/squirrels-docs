@@ -190,7 +190,7 @@ def test_get_user_from_external_token_fetches_metadata(env_vars, env_vars_unform
         
         assert user.username == "test_user"
         assert expiry == 1234567890.0
-        MockGet.assert_called_once_with(provider_configs.server_metadata_url)
+        MockGet.assert_called_once_with(provider_configs.server_metadata_url, timeout=10)
         MockJWTDecode.assert_called_once_with(
             token,
             key="public_key",

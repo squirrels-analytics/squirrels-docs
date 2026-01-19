@@ -1,6 +1,6 @@
 ---
 title: "Changes in v0.6.0"
-description: "January 11th, 2026"
+description: "January 25th, 2026"
 ---
 
 import Intro from '/snippets/releases/intro1.mdx';
@@ -11,7 +11,7 @@ The following are fixes and new features for [v0.6.0].
 
 ## Fixes
 
-- [BREAKING CHANGE] Renamed the `SquirrelsProject.dataset` method to `SquirrelsProject.dataset_result` to avoid confusion with the `DashboardArgs.dataset` method. Although the two methods had the same name, they had different purposes and return different types.
+- **[BREAKING CHANGE]** Renamed the `SquirrelsProject.dataset` method to `SquirrelsProject.dataset_result` to avoid confusion with the `DashboardArgs.dataset` method. Although the two methods had the same name, they had different purposes and return different types.
 
 ## New features
 
@@ -34,6 +34,27 @@ The following are fixes and new features for [v0.6.0].
   - Environment variables used for managed auth (such as `SQRL_SECRET__ADMIN_PASSWORD`, `SQRL_AUTH__DB_FILE_PATH`, and `SQRL_AUTH__TOKEN_EXPIRE_MINUTES`) do not apply.
 - Added `/.well-known/oauth-protected-resource` (OAuth 2.1 Protected Resource Metadata, RFC 9728) to help OAuth-aware clients discover the authorization server(s) when running in standalone mode.
 - MCP server auth: when `auth_strategy` is `external` and `auth_type` is `required`, the MCP server requires `Authorization: Bearer <token>` and responds with HTTP 401 + `WWW-Authenticate` pointing to the protected resource metadata endpoint.
+
+**Using MCP's `_meta` field for configurables**
+
+- It is now possible to pass configurables to MCP tools by specifying them in the `_meta` field of the tool call. More details on the `_meta` field can be found in the [MCP specifications here](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#_meta).
+- Just like before, the user must have elevated access level to pass configurables to MCP tools. This usually means the user is an admin unless the `SQRL_PERMISSIONS__ELEVATED_ACCESS_LEVEL` environment variable is set to a lower value.
+- For example, if you have a configurable called `schema_name` in your project, you can pass it as a `_meta` field in the tool call with the key `schema_name`. Support for the request header format `x-config-schema-name` is also available for backwards compatibility.
+- Example JSON-RPC request body:
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_dataset_results_from_my_project",
+    "arguments": {
+      ...
+    },
+    "_meta": {
+      "schema_name": "my_schema"
+    }
+  }
+}
+```
 
 **Dashboard context variables and configurables**
 

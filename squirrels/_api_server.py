@@ -22,10 +22,6 @@ from ._manifest import AuthStrategy, AuthType
 from ._request_context import set_request_id
 from ._mcp_server import McpServerBuilder
 
-if TYPE_CHECKING:
-    from contextlib import _AsyncGeneratorContextManager
-    from ._project import SquirrelsProject
-
 # Import route modules
 from ._api_routes.auth import AuthRoutes
 from ._api_routes.project import ProjectRoutes
@@ -33,8 +29,10 @@ from ._api_routes.datasets import DatasetRoutes
 from ._api_routes.dashboards import DashboardRoutes
 from ._api_routes.data_management import DataManagementRoutes
 
-# # Disabled for now, a 'bring your own OAuth2 server' approach will be provided in the future
-# from ._api_routes.oauth2 import OAuth2Routes 
+if TYPE_CHECKING:
+    from contextlib import _AsyncGeneratorContextManager
+    from ._project import SquirrelsProject
+
 
 mimetypes.add_type('application/javascript', '.js')
 
@@ -260,7 +258,7 @@ class ApiServer:
         Get the lifespan context manager for the Squirrels project.
         """
         @asynccontextmanager
-        async def lifespan(app: FastAPI):
+        async def lifespan(app: FastAPI | None = None):
             """App lifespan that includes MCP server lifecycle and background tasks."""
             self._print_banner(mount_path, host, port, is_standalone_mode)
             
@@ -423,20 +421,6 @@ class ApiServer:
         )
         self._mcp_app = self._mcp_builder.get_asgi_app()
 
-        # Add Squirrels Studio
-        templates = Jinja2Templates(directory=str(Path(__file__).parent / "_package_data" / "templates"))
-
-        @app.get("/studio", include_in_schema=False)
-        async def squirrels_studio(request: Request):
-            sqrl_studio_base_url = self.env_vars.studio_base_url
-            host_url = request.url_for("explore_http_endpoints")
-            context = {
-                "sqrl_studio_base_url": sqrl_studio_base_url,
-                "host_url": str(host_url).rstrip("/"),
-            }
-            template = templates.get_template("squirrels_studio.html")
-            return HTMLResponse(content=template.render(context))
-
         # Mount MCP server
         app.add_route("/mcp", self._mcp_app, methods=["GET", "POST"])
         
@@ -465,6 +449,27 @@ class ApiServer:
                 studio_url=base_url + "/studio",
             )
         
+        # Add Squirrels Studio
+        templates = Jinja2Templates(directory=str(Path(__file__).parent / "_package_data" / "templates"))
+
+        @app.get("/studio", include_in_schema=False)
+        async def squirrels_studio(request: Request):
+            sqrl_studio_base_url = self.env_vars.studio_base_url
+            
+            # IMPORTANT: avoid `request.url_for("explore_http_endpoints")` here.
+            # When multiple Squirrels FastAPI apps are mounted into a root app, that route name
+            # can become ambiguous and resolve to the wrong mounted app. `request.base_url`
+            # is derived from the current request scope (including `root_path`), so it always
+            # points at the correct mounted Squirrels server instance.
+            host_url = AuthRoutes._get_base_url_for_current_app(request)
+            
+            context = {
+                "sqrl_studio_base_url": sqrl_studio_base_url,
+                "host_url": host_url,
+            }
+            template = templates.get_template("squirrels_studio.html")
+            return HTMLResponse(content=template.render(context))
+
         self.logger.log_activity_time("creating app server", start)
         return app
     

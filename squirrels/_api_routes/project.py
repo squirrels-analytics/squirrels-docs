@@ -100,7 +100,7 @@ class ProjectRoutes(RouteBase):
                 get_user_session_url = base_url + "/auth/user-session",
                 list_providers_url = base_url + "/auth/providers",
                 login_url = None if is_external else base_url + "/auth/login",
-                logout_url = None if is_external else base_url + "/auth/logout",
+                logout_url = base_url + "/auth/logout",
                 change_password_url = None if is_external else base_url + "/auth/password",
                 list_api_keys_url = None if is_external else base_url + "/auth/api-keys",
                 create_api_key_url = None if is_external else base_url + "/auth/api-keys",

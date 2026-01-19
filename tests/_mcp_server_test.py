@@ -52,7 +52,7 @@ def mcp_builder(mock_data_catalog, mock_parameters, mock_dataset_result) -> McpS
     async def get_dataset_parameters(dataset, parameter_name, selected_ids, user):
         return mock_parameters
     
-    async def get_dataset_results(dataset, parameters, sql_query, user, headers):
+    async def get_dataset_results(dataset, parameters, sql_query, user, configurables):
         return mock_dataset_result
     
     return McpServerBuilder(
@@ -76,7 +76,7 @@ def mcp_builder_enforced_auth(mock_data_catalog, mock_parameters, mock_dataset_r
     async def get_dataset_parameters(dataset, parameter_name, selected_ids, user):
         return mock_parameters
 
-    async def get_dataset_results(dataset, parameters, sql_query, user, headers):
+    async def get_dataset_results(dataset, parameters, sql_query, user, configurables):
         return mock_dataset_result
 
     def get_user_from_headers(api_key, bearer_token):

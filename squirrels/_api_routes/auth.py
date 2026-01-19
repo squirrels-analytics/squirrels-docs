@@ -4,6 +4,7 @@ Authentication and user management routes
 from datetime import datetime, timezone
 import secrets
 from typing import Annotated, Literal
+from urllib.parse import quote
 from fastapi import FastAPI, Depends, Request, Response, Form, APIRouter
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
@@ -13,7 +14,7 @@ from authlib.integrations.starlette_client import OAuth
 from .. import _utils as u
 from .._schemas import response_models as rm
 from .._exceptions import InvalidInputError
-from .._schemas.auth_models import AbstractUser, RegisteredUser, GuestUser, UserFieldsModel
+from .._schemas.auth_models import AbstractUser, RegisteredUser, GuestUser, UserFieldsModel, ApiKey
 from .._manifest import AuthStrategy
 from .base import RouteBase
 
@@ -23,6 +24,18 @@ class AuthRoutes(RouteBase):
     
     def __init__(self, get_bearer_token: HTTPBearer, project, no_cache: bool = False):
         super().__init__(get_bearer_token, project, no_cache)
+
+    @staticmethod
+    def _get_base_url_for_current_app(request: Request) -> str:
+        """
+        Build the absolute base URL for the *current* mounted app, including `root_path`.
+
+        We avoid `request.url_for(...)` because route names can collide when multiple Squirrels
+        FastAPI apps are mounted into the same root app.
+        """
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+        root_path = str(request.scope.get("root_path") or "").rstrip("/")
+        return f"{base_url}{root_path}"
         
     def setup_routes(self, app: FastAPI) -> None:
         """Setup all authentication routes"""
@@ -113,7 +126,7 @@ class AuthRoutes(RouteBase):
         @auth_router.get(providers_path, tags=["Authentication"])
         async def get_providers(request: Request) -> list[rm.ProviderResponse]:
             """Get list of available authentication providers"""
-            base_url = str(request.url_for("get_project_metadata")).rstrip("/")
+            base_url = self._get_base_url_for_current_app(request)
 
             def get_icon_url(icon: str) -> str:
                 if icon.startswith("/public/"):
@@ -125,7 +138,7 @@ class AuthRoutes(RouteBase):
                     name=provider.name,
                     label=provider.label,
                     icon=get_icon_url(provider.icon),
-                    login_url=str(request.url_for('provider_login', provider_name=provider.name))
+                    login_url=f"{base_url}{auth_path}/providers/{quote(provider.name)}/login",
                 )
                 for provider in self.authenticator.auth_providers
             ]
@@ -143,7 +156,8 @@ class AuthRoutes(RouteBase):
             if client is None:
                 raise InvalidInputError(status_code=404, error="provider_not_found", error_description=f"Provider {provider_name} not found or configured.")
 
-            callback_uri = str(request.url_for('provider_callback', provider_name=provider_name))
+            base_url = self._get_base_url_for_current_app(request)
+            callback_uri = f"{base_url}{auth_path}/providers/{quote(provider_name)}/callback"
             request.session["redirect_url"] = redirect_url
             
             # OIDC best practice: include a nonce when requesting an id_token.
@@ -220,19 +234,20 @@ class AuthRoutes(RouteBase):
             if redirect_url:
                 return RedirectResponse(url=redirect_url)
             
-            return RedirectResponse(url=str(request.url_for("get_user_session")))
+            base_url = self._get_base_url_for_current_app(request)
+            return RedirectResponse(url=f"{base_url}{auth_path}/user-session")
 
         # Logout endpoint
+        logout_path = '/logout'
+        
+        @auth_router.post(logout_path, tags=["Authentication"])
+        async def logout(request: Request):
+            """Logout the current user by clearing the access token and expiry from the session"""
+            request.session.pop("access_token", None)
+            request.session.pop("access_token_expiry", None)
+            return Response(status_code=200)
+        
         if not is_external:
-            logout_path = '/logout'
-            
-            @auth_router.post(logout_path, tags=["Authentication"])
-            async def logout(request: Request):
-                """Logout the current user by clearing the access token and expiry from the session"""
-                request.session.pop("access_token", None)
-                request.session.pop("access_token_expiry", None)
-                return Response(status_code=200)
-            
             # Change password endpoint
             change_password_path = '/password'
 
@@ -265,7 +280,7 @@ class AuthRoutes(RouteBase):
                 return rm.ApiKeyResponse(api_key=api_key)
             
             @auth_router.get(api_key_path, description="Get all API keys with title for the current user", tags=["Authentication"])
-            async def get_all_api_keys(user: RegisteredUser | GuestUser = Depends(self.get_current_user)):
+            async def get_all_api_keys(user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> list[ApiKey]:
                 if isinstance(user, GuestUser):
                     raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot get API keys")
                 return self.authenticator.get_all_api_keys(user.username)

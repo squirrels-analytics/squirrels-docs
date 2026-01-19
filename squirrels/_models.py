@@ -1137,7 +1137,7 @@ class ModelsIO:
         file_stem, extension = os.path.splitext(file)
         
         if extension == '.py':
-            module = pm.PyModule(filepath)
+            module = pm.PyModule(filepath, project_path=env_vars.project_path)
             raw_query = module.get_func_or_class(c.MAIN_FUNC)
             query_file = mq.PyQueryFile(filepath.as_posix(), raw_query)
         elif extension == '.sql':
@@ -1192,7 +1192,9 @@ class ModelsIO:
         start = time.time()
 
         context_path = u.Path(project_path, c.PYCONFIGS_FOLDER, c.CONTEXT_FILE)
-        context_func: ContextFunc = pm.PyModule(context_path).get_func_or_class(c.MAIN_FUNC, default_attr=lambda ctx, sqrl: None)
+        context_func: ContextFunc = pm.PyModule(
+            context_path, project_path=project_path
+        ).get_func_or_class(c.MAIN_FUNC, default_attr=lambda ctx, sqrl: None)
 
         logger.log_activity_time("loading file for context.py", start)
         return context_func
