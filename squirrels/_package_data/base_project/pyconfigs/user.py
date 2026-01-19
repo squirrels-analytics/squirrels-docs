@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Any
 from squirrels.auth import CustomUserFields as BaseCustomUserFields, ProviderConfigs, RegisteredUser, provider
 from squirrels.arguments import AuthProviderArgs
 
@@ -35,7 +35,7 @@ def google_auth_provider(sqrl: AuthProviderArgs) -> ProviderConfigs:
     - Unfortunately, Google OAuth (and many other OAuth providers) do not support DCR. If auth_strategy 
       is 'external', consider using an alternative that supports DCR instead (such as WorkOS or Keycloak).
     """
-    def get_sqrl_user(claims: dict) -> RegisteredUser:
+    def get_sqrl_user(claims: dict[str, Any]) -> RegisteredUser:
         custom_fields = CustomUserFields(role="customer")
         return RegisteredUser(
             username=claims["email"],

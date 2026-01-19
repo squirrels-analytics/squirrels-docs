@@ -453,13 +453,13 @@ class Authenticator:
             return cached
 
         try:
-            response = requests.get(metadata_url)
+            response = requests.get(metadata_url, timeout=10)
             response.raise_for_status()
             metadata = response.json()
             if not isinstance(metadata, dict):
                 raise ValueError("Provider metadata was not a JSON object")
         except Exception as e:
-            raise ConfigurationError(f"Failed to fetch metadata for provider '{provider_name}': {str(e)}")
+            raise ConfigurationError(f"Failed to fetch metadata for provider '{provider_name}': {str(e)}") from e
 
         self._provider_metadata_cache[metadata_url] = metadata
         return metadata
@@ -587,12 +587,14 @@ class Authenticator:
                 response = requests.get(
                     userinfo_endpoint,
                     headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10,
                 )
                 response.raise_for_status()
                 user_info = response.json()
                 if isinstance(user_info, dict) and user_info:
                     return user_info
-            except Exception:
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch user info from {userinfo_endpoint} for provider {provider_name}: {str(e)}")
                 # Fall back to introspection if available
                 pass
 
@@ -603,6 +605,7 @@ class Authenticator:
                     introspection_endpoint,
                     data={"token": access_token},
                     auth=(provider.provider_configs.client_id, provider.provider_configs.client_secret),
+                    timeout=10,
                 )
                 response.raise_for_status()
                 token_info = response.json()
@@ -612,7 +615,8 @@ class Authenticator:
                     return token_info
             except InvalidInputError:
                 raise
-            except Exception:
+            except Exception as e:
+                self.logger.warning(f"Introspection request failed for provider {provider_name} using basic auth: {str(e)}")
                 # Some providers require "client_secret_post" instead of basic auth for introspection.
                 try:
                     response = requests.post(
@@ -622,6 +626,7 @@ class Authenticator:
                             "client_id": provider.provider_configs.client_id,
                             "client_secret": provider.provider_configs.client_secret,
                         },
+                        timeout=10,
                     )
                     response.raise_for_status()
                     token_info = response.json()
@@ -631,7 +636,8 @@ class Authenticator:
                         return token_info
                 except InvalidInputError:
                     raise
-                except Exception:
+                except Exception as e2:
+                    self.logger.warning(f"Introspection request failed for provider {provider_name} using post data: {str(e2)}")
                     pass
 
         raise InvalidInputError(

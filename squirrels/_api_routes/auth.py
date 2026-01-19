@@ -217,8 +217,10 @@ class AuthRoutes(RouteBase):
             request.session["access_token_expiry"] = expiry_timestamp
 
             redirect_url = request.session.pop("redirect_url", None)
+            if redirect_url:
+                return RedirectResponse(url=redirect_url)
             
-            return RedirectResponse(url=redirect_url)
+            return RedirectResponse(url=str(request.url_for("get_user_session")))
 
         # Logout endpoint
         if not is_external:

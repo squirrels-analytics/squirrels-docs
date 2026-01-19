@@ -141,9 +141,12 @@ class DashboardsIO:
 
     @classmethod
     def load_files(
-        cls, logger: u.Logger, project_path: str, auth_type: AuthType = AuthType.OPTIONAL, project_configurables: dict[str, Any] = {}
+        cls, logger: u.Logger, project_path: str, auth_type: AuthType = AuthType.OPTIONAL, project_configurables: dict[str, Any] | None = None
     ) -> dict[str, DashboardDefinition]:
         start = time.time()
+        
+        if project_configurables is None:
+            project_configurables = {}
         
         default_scope = PermissionScope.PROTECTED if auth_type == AuthType.REQUIRED else PermissionScope.PUBLIC
         
