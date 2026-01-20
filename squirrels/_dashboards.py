@@ -114,11 +114,12 @@ class DashboardDefinition:
     dashboard_name: str
     filepath: str
     config: DashboardConfig
+    project_path: str
 
     @property
     def dashboard_func(self) -> Callable[[DashboardArgs], Coroutine[Any, Any, Dashboard]]:
         if not hasattr(self, '_dashboard_func'):
-            module = PyModule(self.filepath)
+            module = PyModule(self.filepath, self.project_path)
             self._dashboard_func = module.get_func_or_class(c.MAIN_FUNC)
         return self._dashboard_func
 
@@ -141,14 +142,17 @@ class DashboardsIO:
 
     @classmethod
     def load_files(
-        cls, logger: u.Logger, base_path: str, auth_type: AuthType = AuthType.OPTIONAL, project_configurables: dict[str, Any] = {}
+        cls, logger: u.Logger, project_path: str, auth_type: AuthType = AuthType.OPTIONAL, project_configurables: dict[str, Any] | None = None
     ) -> dict[str, DashboardDefinition]:
         start = time.time()
+        
+        if project_configurables is None:
+            project_configurables = {}
         
         default_scope = PermissionScope.PROTECTED if auth_type == AuthType.REQUIRED else PermissionScope.PUBLIC
         
         dashboards_by_name = {}
-        for dp, _, filenames in os.walk(u.Path(base_path, c.DASHBOARDS_FOLDER)):
+        for dp, _, filenames in os.walk(u.Path(project_path, c.DASHBOARDS_FOLDER)):
             for file in filenames:
                 filepath = os.path.join(dp, file)
                 file_stem, extension = os.path.splitext(file)
@@ -169,7 +173,7 @@ class DashboardsIO:
                 if auth_type == AuthType.REQUIRED and config.scope == PermissionScope.PUBLIC:
                     raise ConfigurationError(f'Authentication is required, so dashboard "{file_stem}" cannot be public. Update the scope in "{yml_path}"')
                 
-                dashboards_by_name[file_stem] = DashboardDefinition(file_stem, filepath, config)
+                dashboards_by_name[file_stem] = DashboardDefinition(file_stem, filepath, config, project_path)
                 
         logger.log_activity_time("loading files for dashboards", start)
         return dashboards_by_name

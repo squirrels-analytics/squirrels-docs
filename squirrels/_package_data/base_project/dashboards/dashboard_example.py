@@ -1,9 +1,10 @@
-from squirrels import arguments as args, dashboards as d
+from squirrels.arguments import DashboardArgs
+from squirrels.dashboards import PngDashboard, HtmlDashboard
 from matplotlib import pyplot as plt, figure as fg, axes as a
 import asyncio
 
 
-async def main(sqrl: args.DashboardArgs) -> d.PngDashboard:
+async def main(sqrl: DashboardArgs) -> PngDashboard | HtmlDashboard:
     # Get dataset instances concurrently
     all_dataframes = await asyncio.gather(
         sqrl.dataset("grouped_expenses", fixed_parameters={"group_by": "month"}),
@@ -36,4 +37,4 @@ async def main(sqrl: args.DashboardArgs) -> d.PngDashboard:
     subcategory_pandas.plot(y="total_amount", kind='pie', ax=ax1, autopct=autopct, legend=False, ylabel="")
     ax1.set_title("Spending by Subcategory")
     
-    return d.PngDashboard(fig)
+    return PngDashboard(fig)

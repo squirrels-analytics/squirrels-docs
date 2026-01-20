@@ -1,8 +1,9 @@
 from typing import Any
-from squirrels import arguments as args, connections as cn
+from squirrels.arguments import ConnectionsArgs
+from squirrels.connections import ConnectionProperties, ConnectionTypeEnum
 
 
-def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.ConnectionsArgs) -> None:
+def main(connections: dict[str, ConnectionProperties | Any], sqrl: ConnectionsArgs) -> None:
     """
     Define sqlalchemy engines by adding them to the "connections" dictionary
     """
@@ -10,9 +11,9 @@ def main(connections: dict[str, cn.ConnectionProperties | Any], sqrl: args.Conne
     conn_str: str = sqrl.env_vars["SQLITE_URI"].format(project_path=sqrl.project_path)
 
     ## Assigning names to connection engines
-    connections["default"] = cn.ConnectionProperties(
+    connections["default"] = ConnectionProperties(
         label="SQLite Expenses Database", 
-        type=cn.ConnectionTypeEnum.SQLALCHEMY, 
+        type=ConnectionTypeEnum.SQLALCHEMY, 
         uri=conn_str
     )
     

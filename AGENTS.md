@@ -17,7 +17,6 @@ Instructions and guardrails for AI coding agents working with this repository. A
 ## Environment & setup
 - Python: >= 3.10 required
 - Package manager: `uv` (Astral)
-- Install `uv`: https://docs.astral.sh/uv/getting-started/installation/
 
 Setup commands:
 - Install dependencies and create venv:

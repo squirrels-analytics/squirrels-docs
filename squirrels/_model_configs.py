@@ -13,7 +13,7 @@ class ColumnCategory(Enum):
 class ColumnConfig(BaseModel):
     name: str = Field(description="The name of the column")
     type: str = Field(default="", description="The type of the column such as 'string', 'integer', 'float', 'boolean', 'datetime', etc.")
-    condition: str = Field(default="", description="The condition of when the column is included")
+    condition: list[str] = Field(default_factory=list, description="The condition(s) of when the column is included. Only for documentation purposes.")
     description: str = Field(default="", description="The description of the column")
     category: ColumnCategory = Field(default=ColumnCategory.MISC, description="The category of the column, either 'dimension', 'measure', or 'misc'")
     depends_on: set[str] = Field(default_factory=set, description="List of dependent columns")

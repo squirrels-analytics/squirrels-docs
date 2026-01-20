@@ -18,7 +18,7 @@ If the same variable is defined in both `.env.local` and `.env`, the value in `.
 </Warning>
 
 <ResponseField name="SQRL_SECRET__KEY" type="string">
-  Secret key used for JWT token signing and session management. Required for authentication features like creating access tokens and API keys.
+  Secret key used for JWT token signing and session management. Required for authentication features like creating access tokens and API keys when `auth_strategy` is `managed`.
 
   You can generate a secure key using the following command for instance:
 
@@ -29,16 +29,22 @@ If the same variable is defined in both `.env.local` and `.env`, the value in `.
 
 <ResponseField name="SQRL_SECRET__ADMIN_PASSWORD" type="string">
   Password for the admin user (i.e., the user with username `admin`). When set, the password of the admin user is created or updated on server startup.
+
+  This environment variable only applies when `auth_strategy` is `managed`. It is not used when `auth_strategy` is `external`.
 </ResponseField>
 
 ## Authentication and permissions
 
 <ResponseField name="SQRL_AUTH__DB_FILE_PATH" type="string" default="{project_path}/target/auth.sqlite">
-  Path to the SQLite database file used for storing user accounts, API keys, and OAuth client data. Supports the `{project_path}` placeholder.
+  Path to the SQLite database file used for storing user accounts and API keys. Supports the `{project_path}` placeholder.
+
+  This environment variable only applies when `auth_strategy` is `managed`. It is not used when `auth_strategy` is `external`.
 </ResponseField>
 
 <ResponseField name="SQRL_AUTH__TOKEN_EXPIRE_MINUTES" type="integer" default="30">
   Expiration time for JWT access tokens in minutes.
+
+  This environment variable only applies when `auth_strategy` is `managed`. It is not used when `auth_strategy` is `external` (the expiration time of the access token is determined by the external provider).
 </ResponseField>
 
 <ResponseField name="SQRL_AUTH__ALLOWED_ORIGINS_FOR_COOKIES" type="string" default="https://squirrels-analytics.github.io">

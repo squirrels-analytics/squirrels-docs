@@ -11,16 +11,20 @@ from contextlib import asynccontextmanager
 from textwrap import dedent
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.routing import Mount
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 import mcp.types as types
 import json
 
+from . import _utils as u
 from ._schemas.auth_models import AbstractUser
 from ._schemas.request_models import McpRequestHeaders
 from ._exceptions import InvalidInputError
+from ._http_error_responses import invalid_input_error_to_json_response
 from ._schemas import response_models as rm
 from ._dataset_types import DatasetResult, DatasetResultFormat
 from ._api_routes.base import RouteBase
@@ -42,7 +46,7 @@ class GetDatasetParametersForMcp(Protocol):
 
 class GetDatasetResultsForMcp(Protocol):
     async def __call__(
-        self, dataset: str, parameters: str, sql_query: str | None, user: AbstractUser, headers: dict[str, str]
+        self, dataset: str, parameters: dict[str, Any], sql_query: str | None, user: AbstractUser, configurables: tuple[tuple[str, str], ...]
     ) -> DatasetResult:
         ...
 
@@ -67,6 +71,10 @@ class McpServerBuilder:
         get_data_catalog_for_mcp: GetDataCatalogForMcp,
         get_dataset_parameters_for_mcp: GetDatasetParametersForMcp,
         get_dataset_results_for_mcp: GetDatasetResultsForMcp,
+        *,
+        enforce_oauth_bearer: bool = False,
+        oauth_resource_metadata_path: str = "/.well-known/oauth-protected-resource",
+        www_authenticate_strip_path_suffix: str = "/mcp",
     ):
         """
         Initialize the MCP server builder.
@@ -83,6 +91,10 @@ class McpServerBuilder:
         self.project_label = project_label
         self.max_rows_for_ai = max_rows_for_ai
         self.default_for_limit = min(self.max_rows_for_ai, 10)
+
+        self.enforce_oauth_bearer = enforce_oauth_bearer
+        self.oauth_resource_metadata_path = oauth_resource_metadata_path
+        self.www_authenticate_strip_path_suffix = www_authenticate_strip_path_suffix
 
         self._get_user_from_headers = get_user_from_headers
         self._get_data_catalog_for_mcp = get_data_catalog_for_mcp
@@ -146,6 +158,77 @@ class McpServerBuilder:
             pass
         
         return McpRequestHeaders()
+    
+    def _get_request_metadata(self) -> dict[str, Any]:
+        """
+        Metadata of the current MCP request as a dictionary.
+        
+        Returns:
+            A dictionary of the request metadata
+        """
+        request_metadata = self._server.request_context.meta
+        return request_metadata.model_dump(mode="json")
+
+    def _get_configurables(self, mcp_headers: McpRequestHeaders) -> tuple[tuple[str, str], ...]:
+        """
+        Extract configurables from headers and metadata.
+        """
+        prefix = "x-config-"
+        cfg_dict: dict[str, str] = {}
+        
+        # 1. Extract from headers
+        for key, value in mcp_headers.raw_headers.items():
+            key_lower = str(key).lower()
+            if key_lower.startswith(prefix):
+                cfg_name_raw = key_lower[len(prefix):]
+                cfg_name_normalized = u.normalize_name(cfg_name_raw)
+                
+                if cfg_name_normalized in cfg_dict:
+                    raise InvalidInputError(
+                        400, "duplicate_configurable",
+                        f"Configurable '{cfg_name_normalized}' specified multiple times in headers."
+                    )
+                cfg_dict[cfg_name_normalized] = str(value)
+
+        # 2. Extract from metadata
+        metadata = self._get_request_metadata()
+        for key, value in metadata.items():
+            if key == "progressToken":
+                continue
+            
+            cfg_name_normalized = u.normalize_name(key)
+            if cfg_name_normalized in cfg_dict:
+                raise InvalidInputError(
+                    400, "duplicate_configurable",
+                    f"Configurable '{cfg_name_normalized}' specified multiple times (header and metadata)."
+                )
+            cfg_dict[cfg_name_normalized] = str(value)
+
+        return tuple(cfg_dict.items())
+
+    def _get_validated_user_for_request(self, mcp_headers: McpRequestHeaders) -> tuple[AbstractUser, float | None]:
+        """
+        Return the validated user for the current HTTP request.
+
+        If the MCP app runs with `enforce_oauth_bearer=True`, missing Bearer tokens
+        must produce an HTTP 401 (not an MCP tool error), so we raise InvalidInputError.
+        """
+        # Prefer values set by the HTTP middleware to avoid double validation.
+        try:
+            request = self._server.request_context.request
+            if request is not None and hasattr(request, "state"):
+                state = request.state
+                user = getattr(state, "sqrl_user", None)
+                expiry = getattr(state, "access_token_expiry", None)
+                if user is not None:
+                    return user, expiry
+        except (AttributeError, LookupError):
+            pass
+
+        if self.enforce_oauth_bearer and not mcp_headers.bearer_token:
+            raise InvalidInputError(401, "user_required", "Authentication is required")
+
+        return self._get_user_from_headers(api_key=mcp_headers.api_key, bearer_token=mcp_headers.bearer_token)
 
     async def _list_tools(self) -> list[types.Tool]:
         """Return the list of available MCP tools."""
@@ -314,7 +397,7 @@ class McpServerBuilder:
         
         try:
             mcp_headers = self._get_request_headers()
-            user, _ = self._get_user_from_headers(api_key=mcp_headers.api_key, bearer_token=mcp_headers.bearer_token)
+            user, _ = self._get_validated_user_for_request(mcp_headers)
             
             feature_flags = mcp_headers.feature_flags
             full_result_flag = "mcp-full-dataset-v1" in feature_flags
@@ -365,8 +448,9 @@ class McpServerBuilder:
                     raise InvalidInputError(400, "invalid_limit", f"The 'limit' argument must be less than or equal to {self.max_rows_for_ai}.")
                 
                 # get dataset result object
+                configurables = self._get_configurables(mcp_headers)
                 result_obj = await self._get_dataset_results_for_mcp(
-                    dataset, parameters, sql_query, user, mcp_headers.raw_headers
+                    dataset, parameters, sql_query, user, configurables
                 )
 
                 # format dataset result object
@@ -389,9 +473,12 @@ class McpServerBuilder:
                 )
         
         except InvalidInputError as e:
+            # If auth is required, surface HTTP 401s as real HTTP responses.
+            if e.status_code == 401:
+                raise
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=f"Error: {e.error_description}")],
-                isError=True
+                isError=True,
             )
         except Exception as e:
             return types.CallToolResult(
@@ -414,14 +501,14 @@ class McpServerBuilder:
         mcp_headers = self._get_request_headers()
         
         if str(uri) == self.catalog_resource_uri:
-            user, _ = self._get_user_from_headers(mcp_headers.api_key, mcp_headers.bearer_token)
+            user, _ = self._get_validated_user_for_request(mcp_headers)
             result = await self._get_data_catalog_for_mcp(user)
             return result.model_dump_json(by_alias=True)
         else:
             raise ValueError(f"Unknown resource URI: {uri}")
     
     @asynccontextmanager
-    async def lifespan(self) -> AsyncIterator[None]:
+    async def lifespan(self, app: object | None = None) -> AsyncIterator[None]:
         """
         Async context manager for the MCP session manager lifecycle.
         
@@ -434,11 +521,56 @@ class McpServerBuilder:
         """
         Get the ASGI app for the MCP server.
         """
+        async def _invalid_input_handler(request: Request, exc: InvalidInputError):
+            # When mounted under `/mcp` (or a larger mount path ending in `/mcp`),
+            # strip only that mount suffix so the resource_metadata URL points to
+            # the top-level endpoint.
+            return invalid_input_error_to_json_response(
+                request,
+                exc,
+                oauth_resource_metadata_path=self.oauth_resource_metadata_path,
+                strip_path_suffix=self.www_authenticate_strip_path_suffix,
+                is_mcp=True,
+            )
+
         app = Starlette(
             routes=[
                 Mount("/", app=self._session_manager.handle_request),
             ],
             lifespan=self.lifespan,
+            exception_handlers={InvalidInputError: _invalid_input_handler},
         )
+
+        builder = self
+
+        class _McpOAuthGateMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request: Request, call_next):
+                try:
+                    if builder.enforce_oauth_bearer:
+                        auth_header = request.headers.get("authorization", "")
+                        token = None
+                        if auth_header.lower().startswith("bearer "):
+                            token = auth_header[7:].strip()
+
+                        if not token:
+                            raise InvalidInputError(401, "user_required", "Authentication is required")
+
+                        user, expiry = builder._get_user_from_headers(api_key=None, bearer_token=token)
+                        request.state.sqrl_user = user
+                        request.state.access_token_expiry = expiry
+
+                    return await call_next(request)
+                except InvalidInputError as exc:
+                    # Starlette's BaseHTTPMiddleware may bypass exception handlers for
+                    # exceptions raised within dispatch; handle explicitly here.
+                    return invalid_input_error_to_json_response(
+                        request,
+                        exc,
+                        oauth_resource_metadata_path=builder.oauth_resource_metadata_path,
+                        strip_path_suffix=builder.www_authenticate_strip_path_suffix,
+                        is_mcp=True,
+                    )
+
+        app.add_middleware(_McpOAuthGateMiddleware)
         return app
     

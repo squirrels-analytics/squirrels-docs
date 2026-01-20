@@ -65,7 +65,9 @@ GITIGNORE_FILE = '.gitignore'
 LOGS_FOLDER = 'logs'
 LOGS_FILE = 'squirrels.log'
 
-DATABASE_FOLDER = 'resources'
+RESOURCES_FOLDER = 'resources'
+PUBLIC_FOLDER = 'public'
+LOGOS_FOLDER = 'logos'
 PACKAGES_FOLDER = 'sqrl_packages'
 
 MACROS_FOLDER = 'macros'
@@ -117,6 +119,7 @@ CONF_FORMAT_CHOICES2 = [(PYTHON_FORMAT2, PYTHON_FORMAT), YML_FORMAT]
 
 EXPENSES_DB = 'expenses.db'
 WEATHER_DB = 'weather.db'
+GOOGLE_LOGO = 'google.ico'
 
 # Dashboard formats
 PNG = "png"

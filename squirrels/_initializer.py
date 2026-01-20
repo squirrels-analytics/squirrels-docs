@@ -67,8 +67,8 @@ class Initializer:
     def _copy_federate_file(self, filepath: str):
         self._copy_file(Path(c.MODELS_FOLDER, c.FEDERATES_FOLDER, filepath))
 
-    def _copy_database_file(self, filepath: str):
-        self._copy_file(Path(c.DATABASE_FOLDER, filepath))
+    def _copy_resource_file(self, filepath: str):
+        self._copy_file(Path(c.RESOURCES_FOLDER, filepath))
     
     def _copy_pyconfig_file(self, filepath: str):
         self._copy_file(Path(c.PYCONFIGS_FOLDER, filepath))
@@ -264,7 +264,8 @@ class Initializer:
             self._copy_dashboard_file(c.DASHBOARD_FILE_STEM + ".py")
             self._copy_dashboard_file(c.DASHBOARD_FILE_STEM + ".yml")
         
-        self._copy_database_file(c.EXPENSES_DB)
+        self._copy_resource_file(c.EXPENSES_DB)
+        self._copy_file(Path(c.RESOURCES_FOLDER, c.PUBLIC_FOLDER, ".gitkeep"))
         
         print(f"\nSuccessfully created new Squirrels project!\n")
     
@@ -309,7 +310,7 @@ class Initializer:
             self._copy_dashboard_file(args.file_name + ".py")
             self._copy_dashboard_file(args.file_name + ".yml")
         elif args.file_name in (c.EXPENSES_DB, c.WEATHER_DB):
-            self._copy_database_file(args.file_name)
+            self._copy_resource_file(args.file_name)
         elif args.file_name in (c.SEED_CATEGORY_FILE_STEM, c.SEED_SUBCATEGORY_FILE_STEM):
             self._copy_seed_file(args.file_name + ".csv")
             self._copy_seed_file(args.file_name + ".yml")

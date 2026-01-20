@@ -130,8 +130,8 @@ None
 
 **Headers**
 
-- `Authorization: Bearer <token>` - Required if auth is enabled
-- `x-api-key: <api_key>` - Alternative to `Authorization`
+- `Authorization: Bearer <token>` - Authorization header for Bearer token (required if auth is enabled)
+- `x-api-key: <api_key>` - Alternative to `Authorization` when `auth_strategy` is `managed`
 
 </Accordion>
 
@@ -152,7 +152,8 @@ Any widget parameter name defined for the dataset (from `squirrels.yml`), provid
 
 **Headers**
 
-- `Authorization` / `x-api-key` - Authentication
+- `Authorization` / `x-api-key` - Authorization
+  - Note: `x-api-key` only applies when `auth_strategy` is `managed`
 
 <Note>
 
@@ -188,7 +189,8 @@ Any widget parameter name defined for the dataset (from `squirrels.yml`), provid
 
 **Headers**
 
-- `Authorization` / `x-api-key` - Authentication
+- `Authorization` / `x-api-key` - Authorization
+  - Note: `x-api-key` only applies when `auth_strategy` is `managed`
 - `x-config-{name}: <value>` - Configurable overrides (only applied for users with elevated privileges, and only for configurables defined in the project)
 
 <Info>

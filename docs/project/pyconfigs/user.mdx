@@ -143,8 +143,16 @@ The [ProviderConfigs] class requires:
 - `client_secret`: OAuth client secret (typically from environment variables)
 - `server_url`: URL of the OAuth server
 - `get_user`: Function that converts OAuth claims to a [RegisteredUser] object
-- `server_metadata_path`: Optional path to OAuth server metadata (defaults to `/.well-known/openid-configuration`)
+- `server_metadata_path`: Optional path to OAuth server metadata (defaults to `/.well-known/oauth-authorization-server`)
 - `client_kwargs`: Optional dictionary of additional OAuth client arguments
+
+### External auth notes
+
+If you set `auth_strategy: external` in `squirrels.yml`, Squirrels uses an external OAuth authorization server instead of Squirrels-managed users and API keys. In this mode:
+
+- You must define **exactly one** authentication provider function in `pyconfigs/user.py`.
+- The provider must support **Dynamic Client Registration (DCR)**.
+- Provider-issued Bearer tokens may be **JWTs** (validated via JWKS) or **opaque tokens** (validated via `userinfo_endpoint`, with fallback to `introspection_endpoint` when available).
 
 ## Using custom user fields examples
 

@@ -150,8 +150,8 @@ columns:
       One of `dimension`, `measure`, or `misc` (for miscellaneous)
     </ResponseField>
     
-    <ResponseField name="condition" type="string" default="">
-      Description of when the column is included (for documentation)
+    <ResponseField name="condition" type="list[string]" default="[]">
+      The condition(s) of when the column is included. Only used for documentation purposes.
     </ResponseField>
     
     <ResponseField name="depends_on" type="list[string]" default="[]">
@@ -263,7 +263,7 @@ def main(ctx: dict[str, Any], sqrl: args.ContextArgs) -> None:
 1. **Use descriptive names**: Prefix dbview names with `dbv_` to distinguish them from other model types.
 2. **Be mindful of query performance**: Dbview queries run on the external database in real-time. If the external database is not optimized for large-scale analytical queries, consider using `translate_to_duckdb` to run the query on DuckDB instead.
 3. **Use translate_to_duckdb strategically**: Enable this option to reduce load on production databases, but be aware that you'll be querying potentially stale VDL data.
-4. **Document conditional columns**: If a specific column only exists based on parameter selections, use the `condition` field to document it.
+4. **Document conditional columns**: If a specific column only exists based on parameter selections, use the `condition` field to document it. For example, if a column only exists when the `group_by` parameter is set to `"Transaction"`, then the `condition` field should be set to `["group_by == 'Transaction'"]`.
 5. **Use placeholders for user input**: Always use placeholders (e.g. `:min_amount`) for values that come from user text input to prevent SQL injection.
 6. **Mask sensitive data**: Use conditional logic based on user fields to mask sensitive columns.
 

@@ -469,7 +469,7 @@ class QueryModel(DataModel):
                 
                 # Copy metadata from upstream column
                 col.type = upstream_col.type if col.type == "" else col.type
-                col.condition = upstream_col.condition if col.condition == "" else col.condition
+                col.condition = upstream_col.condition if col.condition == [] else col.condition
                 col.description = upstream_col.description if col.description == "" else col.description
                 col.category = upstream_col.category if col.category == mc.ColumnCategory.MISC else col.category
 
@@ -1137,7 +1137,7 @@ class ModelsIO:
         file_stem, extension = os.path.splitext(file)
         
         if extension == '.py':
-            module = pm.PyModule(filepath)
+            module = pm.PyModule(filepath, project_path=env_vars.project_path)
             raw_query = module.get_func_or_class(c.MAIN_FUNC)
             query_file = mq.PyQueryFile(filepath.as_posix(), raw_query)
         elif extension == '.sql':
@@ -1188,11 +1188,13 @@ class ModelsIO:
         return raw_queries_by_model
 
     @classmethod
-    def load_context_func(cls, logger: u.Logger, base_path: str) -> ContextFunc:
+    def load_context_func(cls, logger: u.Logger, project_path: str) -> ContextFunc:
         start = time.time()
 
-        context_path = u.Path(base_path, c.PYCONFIGS_FOLDER, c.CONTEXT_FILE)
-        context_func: ContextFunc = pm.PyModule(context_path).get_func_or_class(c.MAIN_FUNC, default_attr=lambda ctx, sqrl: None)
+        context_path = u.Path(project_path, c.PYCONFIGS_FOLDER, c.CONTEXT_FILE)
+        context_func: ContextFunc = pm.PyModule(
+            context_path, project_path=project_path
+        ).get_func_or_class(c.MAIN_FUNC, default_attr=lambda ctx, sqrl: None)
 
         logger.log_activity_time("loading file for context.py", start)
         return context_func

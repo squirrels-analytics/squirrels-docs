@@ -9,6 +9,15 @@ The Model Context Protocol (MCP) is an open standard that enables AI agents to i
 
 When you run the Squirrels API server, it automatically starts an MCP server. This server exposes your datasets and parameters as tools and resources that an AI agent (like Claude or ChatGPT) can use to explore and analyze your data.
 
+## Authentication
+
+Whether MCP requests require authentication depends on your `squirrels.yml` settings:
+
+- If `auth_type` is `optional`, MCP requests can be made without authentication (the user is treated as a guest).
+- If `auth_type` is `required`, authentication is required.
+  - If `auth_strategy` is `managed`, you can authenticate using the same mechanisms as the REST API (session / API key).
+  - If `auth_strategy` is `external`, the MCP server requires an `Authorization: Bearer <token>` header with a provider-issued token. If missing/invalid, the server responds with HTTP 401 and includes a `WWW-Authenticate` header that points clients to `/.well-known/oauth-protected-resource`.
+
 ## Resources
 
 Resources are data entities that the AI agent can read. The Squirrels MCP server exposes the following resource:

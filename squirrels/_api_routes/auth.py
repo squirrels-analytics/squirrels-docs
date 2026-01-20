@@ -1,16 +1,21 @@
 """
 Authentication and user management routes
 """
+from datetime import datetime, timezone
+import secrets
 from typing import Annotated, Literal
+from urllib.parse import quote
 from fastapi import FastAPI, Depends, Request, Response, Form, APIRouter
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 from authlib.integrations.starlette_client import OAuth
 
+from .. import _utils as u
 from .._schemas import response_models as rm
 from .._exceptions import InvalidInputError
-from .._schemas.auth_models import AbstractUser, RegisteredUser, GuestUser, UserFieldsModel
+from .._schemas.auth_models import AbstractUser, RegisteredUser, GuestUser, UserFieldsModel, ApiKey
+from .._manifest import AuthStrategy
 from .base import RouteBase
 
 
@@ -19,6 +24,18 @@ class AuthRoutes(RouteBase):
     
     def __init__(self, get_bearer_token: HTTPBearer, project, no_cache: bool = False):
         super().__init__(get_bearer_token, project, no_cache)
+
+    @staticmethod
+    def _get_base_url_for_current_app(request: Request) -> str:
+        """
+        Build the absolute base URL for the *current* mounted app, including `root_path`.
+
+        We avoid `request.url_for(...)` because route names can collide when multiple Squirrels
+        FastAPI apps are mounted into the same root app.
+        """
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+        root_path = str(request.scope.get("root_path") or "").rstrip("/")
+        return f"{base_url}{root_path}"
         
     def setup_routes(self, app: FastAPI) -> None:
         """Setup all authentication routes"""
@@ -27,6 +44,9 @@ class AuthRoutes(RouteBase):
         auth_router = APIRouter(prefix=auth_path)
         user_management_router = APIRouter(prefix=auth_path + "/user-management")
         
+        auth_strategy = self.manifest_cfg.project_variables.auth_strategy
+        is_external = (auth_strategy == AuthStrategy.EXTERNAL)
+
         # Get expiry configuration
         expiry_mins = self.env_vars.auth_token_expire_minutes
         
@@ -81,21 +101,22 @@ class AuthRoutes(RouteBase):
             return user_session
 
         # Login endpoint
-        login_path = '/login'
-        
-        @auth_router.post(login_path, tags=["Authentication"], description="Authenticate with username & password. Returns user information if no redirect_url is provided, otherwise redirects to the specified URL.")
-        async def login(
-            request: Request, username: Annotated[str, Form()], password: Annotated[str, Form()]
-        ) -> UserSessionModel:
-            user = self.authenticator.get_user(username, password)
+        if not is_external:
+            login_path = '/login'
             
-            access_token, expiry = self.authenticator.create_access_token(user, expiry_minutes=expiry_mins)
-            expiry_timestamp = expiry.timestamp()
-            request.session["access_token"] = access_token
-            request.session["access_token_expiry"] = expiry_timestamp
+            @auth_router.post(login_path, tags=["Authentication"], description="Authenticate with username & password. Returns user information if no redirect_url is provided, otherwise redirects to the specified URL.")
+            async def login(
+                request: Request, username: Annotated[str, Form()], password: Annotated[str, Form()]
+            ) -> UserSessionModel:
+                user = self.authenticator.get_user(username, password)
+                
+                access_token, expiry = self.authenticator.create_access_token(user, expiry_minutes=expiry_mins)
+                expiry_timestamp = expiry.timestamp()
+                request.session["access_token"] = access_token
+                request.session["access_token_expiry"] = expiry_timestamp
 
-            user_session = UserSessionModel(user=user.model_dump(mode='json'), session_expiry_timestamp=expiry_timestamp)
-            return user_session
+                user_session = UserSessionModel(user=user.model_dump(mode='json'), session_expiry_timestamp=expiry_timestamp)
+                return user_session
         
         # Provider authentication endpoints
         providers_path = '/providers'
@@ -105,7 +126,7 @@ class AuthRoutes(RouteBase):
         @auth_router.get(providers_path, tags=["Authentication"])
         async def get_providers(request: Request) -> list[rm.ProviderResponse]:
             """Get list of available authentication providers"""
-            base_url = str(request.url_for("get_project_metadata")).rstrip("/")
+            base_url = self._get_base_url_for_current_app(request)
 
             def get_icon_url(icon: str) -> str:
                 if icon.startswith("/public/"):
@@ -117,12 +138,14 @@ class AuthRoutes(RouteBase):
                     name=provider.name,
                     label=provider.label,
                     icon=get_icon_url(provider.icon),
-                    login_url=str(request.url_for('provider_login', provider_name=provider.name))
+                    login_url=f"{base_url}{auth_path}/providers/{quote(provider.name)}/login",
                 )
                 for provider in self.authenticator.auth_providers
             ]
 
-        @auth_router.get(provider_login_path, tags=["Authentication"])
+        @auth_router.get(provider_login_path, tags=["Authentication"], responses={
+            307: {"description": "Redirect to sign in with provider"},
+        })
         async def provider_login(request: Request, provider_name: str, redirect_url: str | None = None) -> RedirectResponse:
             """
             Redirect to the login URL for the OAuth provider. 
@@ -133,14 +156,32 @@ class AuthRoutes(RouteBase):
             if client is None:
                 raise InvalidInputError(status_code=404, error="provider_not_found", error_description=f"Provider {provider_name} not found or configured.")
 
-            callback_uri = str(request.url_for('provider_callback', provider_name=provider_name))
+            base_url = self._get_base_url_for_current_app(request)
+            callback_uri = f"{base_url}{auth_path}/providers/{quote(provider_name)}/callback"
             request.session["redirect_url"] = redirect_url
+            
+            # OIDC best practice: include a nonce when requesting an id_token.
+            # Not all providers will use it, but major OIDC providers support it.
+            nonce = secrets.token_urlsafe(24)
+            request.session[f"oidc_nonce:{provider_name}"] = nonce
 
-            return await client.authorize_redirect(request, callback_uri)
+            # PKCE: Some providers (e.g. Keycloak) require the authorization request to include
+            # `code_challenge_method=S256`. We also store the verifier so we can send it when
+            # exchanging the authorization code for tokens.
+            code_verifier = secrets.token_urlsafe(64)  # ~86 chars; within 43-128 PKCE range
+            request.session[f"pkce_verifier:{provider_name}"] = code_verifier
+            code_challenge = u.generate_pkce_challenge(code_verifier)
+
+            return await client.authorize_redirect(
+                request,
+                callback_uri,
+                nonce=nonce,
+                code_challenge=code_challenge,
+                code_challenge_method="S256",
+            )
 
         @auth_router.get(provider_callback_path, tags=["Authentication"], responses={
-            200: {"model": UserSessionModel, "description": "Login successful, returns user and session information"},
-            302: {"description": "Redirect if redirect_url is in session"},
+            307: {"description": "Redirect to redirect_url provided from provider login"},
         })
         async def provider_callback(request: Request, provider_name: str):
             """Handle OAuth callback from provider"""
@@ -149,29 +190,52 @@ class AuthRoutes(RouteBase):
                 raise InvalidInputError(status_code=404, error="provider_not_found", error_description=f"Provider {provider_name} not found or configured.")
 
             try:
-                token = await client.authorize_access_token(request)
+                code_verifier = request.session.pop(f"pkce_verifier:{provider_name}", None)
+                if code_verifier is None:
+                    token_details: dict = await client.authorize_access_token(request)
+                else:
+                    token_details = await client.authorize_access_token(request, code_verifier=code_verifier)
             except Exception as e:
                 raise InvalidInputError(status_code=400, error="provider_authorization_failed", error_description=f"Could not authorize with provider for access token: {str(e)}")
             
-            user_info: dict = {}
-            if token:
-                if 'userinfo' in token:
-                    user_info = token['userinfo']
-                elif 'id_token' in token and isinstance(token['id_token'], dict) and 'sub' in token['id_token']:
-                    user_info = token['id_token']
-                else:
-                    raise InvalidInputError(status_code=400, error="invalid_provider_user_info", error_description=f"User information not found in token for {provider_name}")
+            if is_external:
+                # Prefer id_token (JWT) for session auth if available. Many providers (e.g. Google)
+                # issue opaque access tokens that do not contain an issuer, which breaks provider
+                # auto-detection for session-based auth.
+                access_token = token_details.get("access_token")
+                id_token = token_details.get("id_token")
+                if isinstance(id_token, str) and id_token and id_token.count(".") == 2:
+                    access_token = id_token
 
-            user = self.authenticator.create_or_get_user_from_provider(provider_name, user_info)
-            access_token, expiry = self.authenticator.create_access_token(user, expiry_minutes=expiry_mins)
-            expiry_timestamp = expiry.timestamp()
+                if not isinstance(access_token, str) or not access_token:
+                    raise InvalidInputError(400, "provider_missing_access_token", f"Provider token not found for {provider_name}")
+
+                expires_in = token_details.get("expires_in")
+                if expires_in is None:
+                    # Fallback for providers that only return absolute expiry
+                    expiry_timestamp = token_details.get("expires_at")
+                    if expiry_timestamp is None:
+                        raise InvalidInputError(400, "provider_missing_expiry", f"Provider expiry timestamp not found for {provider_name}")
+                else:
+                    expiry_timestamp = datetime.now(timezone.utc).timestamp() + float(expires_in)
+            else:
+                expected_nonce = request.session.pop(f"oidc_nonce:{provider_name}", None)
+                user_info = self.authenticator.get_user_info_from_token_details(
+                    provider_name, token_details, expected_nonce=expected_nonce
+                )
+                user = self.authenticator.create_or_get_user_from_provider(provider_name, user_info)
+                access_token, expiry = self.authenticator.create_access_token(user, expiry_minutes=expiry_mins)
+                expiry_timestamp = expiry.timestamp()
+            
             request.session["access_token"] = access_token
             request.session["access_token_expiry"] = expiry_timestamp
 
             redirect_url = request.session.pop("redirect_url", None)
+            if redirect_url:
+                return RedirectResponse(url=redirect_url)
             
-            user_session = UserSessionModel(user=user.model_dump(mode='json'), session_expiry_timestamp=expiry_timestamp)
-            return RedirectResponse(url=redirect_url) if redirect_url else user_session
+            base_url = self._get_base_url_for_current_app(request)
+            return RedirectResponse(url=f"{base_url}{auth_path}/user-session")
 
         # Logout endpoint
         logout_path = '/logout'
@@ -183,59 +247,60 @@ class AuthRoutes(RouteBase):
             request.session.pop("access_token_expiry", None)
             return Response(status_code=200)
         
-        # Change password endpoint
-        change_password_path = '/password'
+        if not is_external:
+            # Change password endpoint
+            change_password_path = '/password'
 
-        class ChangePasswordRequest(BaseModel):
-            old_password: str
-            new_password: str
+            class ChangePasswordRequest(BaseModel):
+                old_password: str
+                new_password: str
 
-        @auth_router.put(change_password_path, description="Change the password for the current user", tags=["Authentication"])
-        async def change_password(request: ChangePasswordRequest, user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> None:
-            if isinstance(user, GuestUser):
-                raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token")
-            self.authenticator.change_password(user.username, request.old_password, request.new_password)
+            @auth_router.put(change_password_path, description="Change the password for the current user", tags=["Authentication"])
+            async def change_password(request: ChangePasswordRequest, user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> None:
+                if isinstance(user, GuestUser):
+                    raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token")
+                self.authenticator.change_password(user.username, request.old_password, request.new_password)
 
-        # API Key endpoints
-        api_key_path = '/api-keys'
+            # API Key endpoints
+            api_key_path = '/api-keys'
 
-        class ApiKeyRequestBody(BaseModel):
-            title: str = Field(description=f"The title of the API key")
-            expiry_minutes: int | None = Field(
-                default=None, 
-                description=f"The number of minutes the API key is valid for (or valid indefinitely if not provided)."
-            )
+            class ApiKeyRequestBody(BaseModel):
+                title: str = Field(description="The title of the API key")
+                expiry_minutes: int | None = Field(
+                    default=None,
+                    description="The number of minutes the API key is valid for (or valid indefinitely if not provided)."
+                )
 
-        @auth_router.post(api_key_path, description="Create a new API key for the user", tags=["Authentication"])
-        async def create_api_key(body: ApiKeyRequestBody, user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> rm.ApiKeyResponse:
-            if isinstance(user, GuestUser):
-                raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot create API key")
+            @auth_router.post(api_key_path, description="Create a new API key for the user", tags=["Authentication"])
+            async def create_api_key(body: ApiKeyRequestBody, user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> rm.ApiKeyResponse:
+                if isinstance(user, GuestUser):
+                    raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot create API key")
+                
+                api_key, _ = self.authenticator.create_access_token(user, expiry_minutes=body.expiry_minutes, title=body.title)
+                return rm.ApiKeyResponse(api_key=api_key)
             
-            api_key, _ = self.authenticator.create_access_token(user, expiry_minutes=body.expiry_minutes, title=body.title)
-            return rm.ApiKeyResponse(api_key=api_key)
-        
-        @auth_router.get(api_key_path, description="Get all API keys with title for the current user", tags=["Authentication"])
-        async def get_all_api_keys(user: RegisteredUser | GuestUser = Depends(self.get_current_user)):
-            if isinstance(user, GuestUser):
-                raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot get API keys")
-            return self.authenticator.get_all_api_keys(user.username)
-        
-        revoke_api_key_path = '/api-keys/{key_id}'
+            @auth_router.get(api_key_path, description="Get all API keys with title for the current user", tags=["Authentication"])
+            async def get_all_api_keys(user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> list[ApiKey]:
+                if isinstance(user, GuestUser):
+                    raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot get API keys")
+                return self.authenticator.get_all_api_keys(user.username)
+            
+            revoke_api_key_path = '/api-keys/{key_id}'
 
-        @auth_router.delete(revoke_api_key_path, description="Revoke an API key", tags=["Authentication"], responses={
-            204: { "description": "API key revoked successfully" }
-        })
-        async def revoke_api_key(key_id: str, user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> Response:
-            if isinstance(user, GuestUser):
-                raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot revoke API key")
-            self.authenticator.revoke_api_key(user.username, key_id)
-            return Response(status_code=204)
+            @auth_router.delete(revoke_api_key_path, description="Revoke an API key", tags=["Authentication"], responses={
+                204: { "description": "API key revoked successfully" }
+            })
+            async def revoke_api_key(key_id: str, user: RegisteredUser | GuestUser = Depends(self.get_current_user)) -> Response:
+                if isinstance(user, GuestUser):
+                    raise InvalidInputError(401, "invalid_authorization_token", "Invalid authorization token, cannot revoke API key")
+                self.authenticator.revoke_api_key(user.username, key_id)
+                return Response(status_code=204)
 
         app.include_router(auth_router)
 
-        # # User management endpoints (disabled if external auth only)
-        # if self.manifest_cfg.project_variables.auth_strategy == AuthStrategy.EXTERNAL: 
-        #     return
+        # User management endpoints (disabled if external auth only)
+        if is_external: 
+            return
 
         user_fields_path = '/user-fields'
 
