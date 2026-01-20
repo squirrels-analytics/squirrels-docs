@@ -119,7 +119,7 @@ class DashboardDefinition:
     @property
     def dashboard_func(self) -> Callable[[DashboardArgs], Coroutine[Any, Any, Dashboard]]:
         if not hasattr(self, '_dashboard_func'):
-            module = PyModule(self.filepath, project_path=self.project_path)
+            module = PyModule(self.filepath, self.project_path)
             self._dashboard_func = module.get_func_or_class(c.MAIN_FUNC)
         return self._dashboard_func
 

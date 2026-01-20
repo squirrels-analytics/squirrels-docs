@@ -229,7 +229,7 @@ class ApiServer:
         print(f"  └─ Squirrels Studio: {full_hostname}{mount_path_stripped}/studio")
         if show_multiple_options:
             print(f"     ├─ The root path also redirects to Squirrels Studio: {full_hostname}/")
-        print(    f"     └─ This requires an internet connection to load the JS and CSS files")
+        print(     "     └─ This requires an internet connection to load the JS and CSS files")
         print()
         print(" 🔌 MCP Server URLs")
         if show_multiple_options:

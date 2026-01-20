@@ -11,7 +11,7 @@ from ._exceptions import ConfigurationError, FileExecutionError
 
 
 @contextmanager
-def _temporary_sys_path(path: str | None) -> Iterator[None]:
+def _temporary_sys_path(path: str) -> Iterator[None]:
     """
     Temporarily prepend `path` to sys.path for the duration of the context.
     """
@@ -58,8 +58,8 @@ class PyModule:
     def __init__(
         self,
         filepath: u.FilePath,
+        project_path: str,
         *,
-        project_path: str | None = None,
         default_class: Optional[Type] = None,
         is_required: bool = False,
     ) -> None:
@@ -113,7 +113,7 @@ def run_pyconfig_main(project_path: str, filename: str, kwargs: dict[str, Any] =
         kwargs: Dictionary of the main function arguments
     """
     filepath = u.Path(project_path, c.PYCONFIGS_FOLDER, filename)
-    module = PyModule(filepath, project_path=project_path)
+    module = PyModule(filepath, project_path)
     main_function = module.get_func_or_class(c.MAIN_FUNC, is_required=False)
     if main_function:
         try:

@@ -265,10 +265,10 @@ class AuthRoutes(RouteBase):
             api_key_path = '/api-keys'
 
             class ApiKeyRequestBody(BaseModel):
-                title: str = Field(description=f"The title of the API key")
+                title: str = Field(description="The title of the API key")
                 expiry_minutes: int | None = Field(
-                    default=None, 
-                    description=f"The number of minutes the API key is valid for (or valid indefinitely if not provided)."
+                    default=None,
+                    description="The number of minutes the API key is valid for (or valid indefinitely if not provided)."
                 )
 
             @auth_router.post(api_key_path, description="Create a new API key for the user", tags=["Authentication"])

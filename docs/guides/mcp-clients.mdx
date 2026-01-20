@@ -14,7 +14,7 @@ If your project uses `auth_type: required`, your MCP client must authenticate.
 - For `auth_strategy: external`, MCP requests must include `Authorization: Bearer <token>` where `<token>` is a provider-issued OAuth access token (or JWT).
   - If authentication is missing/invalid, the server responds with HTTP 401 and a `WWW-Authenticate` header that includes a `resource_metadata` URL (usually served at `/.well-known/oauth-protected-resource`).
   - MCP clients that support OAuth discovery can use this to find the correct authorization server to authenticate with and fetch the access token from first.
-- For `auth_strategy: managed`, MCP requests can use an API key issued by the Squirrels API server.
+- For `auth_strategy: managed`, MCP requests can include `x-api-key: <api_key>` as a header where `<api_key>` is an API key issued by the Squirrels API server.
 
 ## MCP clients
 

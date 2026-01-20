@@ -150,7 +150,7 @@ class SquirrelsProject:
     @ft.cached_property
     def _custom_user_fields_cls_and_provider_functions(self) -> tuple[type[CustomUserFields], list[ProviderFunctionType]]:
         user_module_path = u.Path(self._project_path, c.PYCONFIGS_FOLDER, c.USER_FILE)
-        user_module = PyModule(user_module_path, project_path=self._project_path)
+        user_module = PyModule(user_module_path, self._project_path)
         
         # Load CustomUserFields class (adds to Authenticator.providers as side effect)
         CustomUserFieldsCls = user_module.get_func_or_class("CustomUserFields", default_attr=CustomUserFields)

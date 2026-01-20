@@ -46,7 +46,7 @@ class GetDatasetParametersForMcp(Protocol):
 
 class GetDatasetResultsForMcp(Protocol):
     async def __call__(
-        self, dataset: str, parameters: str, sql_query: str | None, user: AbstractUser, configurables: dict[str, str]
+        self, dataset: str, parameters: dict[str, Any], sql_query: str | None, user: AbstractUser, configurables: tuple[tuple[str, str], ...]
     ) -> DatasetResult:
         ...
 
