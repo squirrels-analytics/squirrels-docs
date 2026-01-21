@@ -130,7 +130,8 @@ class AuthRoutes(RouteBase):
 
             def get_icon_url(icon: str) -> str:
                 if icon.startswith("/public/"):
-                    return base_url + icon
+                    core_url = base_url.split("/api/")[0]
+                    return core_url + icon
                 return icon
 
             return [

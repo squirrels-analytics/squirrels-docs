@@ -14,19 +14,17 @@ Sometimes you might want to run your Squirrels project directly with Uvicorn ins
 
 ### 1. Create a Python entry point
 
-Create a new Python file (e.g., `main.py`) in your project directory. This file will initialize your Squirrels project and set up a FastAPI application.
+Create a new Python file (e.g., `main.py`) in your project directory. This file will initialize your Squirrels project and set up a FastAPI application. We recommend using a `with` statement to ensure that the project is closed and its resources are released after use.
 
 ```python
 from squirrels import SquirrelsProject
 
-# Initialize the project
-sqrl_proj = SquirrelsProject(project_path=".")
-
-# Get the FastAPI components
-sqrl_server = sqrl_proj.get_fastapi_components(host="localhost", port=8000, mount_path_format="")
-
-# Set the FastAPI app
-app = sqrl_server.fastapi_app
+# Initialize the project and get the FastAPI components
+with SquirrelsProject(project_path=".") as sqrl_proj:
+    sqrl_server = sqrl_proj.get_fastapi_components(host="localhost", port=8000, mount_path_format="")
+    
+    # Set the FastAPI app
+    app = sqrl_server.fastapi_app
 ```
 
 <Note>
@@ -45,16 +43,10 @@ See [this how-to guide](/guides/mount-to-fastapi) for more information on how to
 
 You can now run this application using the `uvicorn` CLI. This allows you to pass any arguments supported by Uvicorn.
 
-For example, to run with auto-reload and a specific port:
+For example, to run with a specific host and port:
 
 ```bash
-uvicorn main:app --reload --port 8080
-```
-
-To run with multiple workers:
-
-```bash
-uvicorn main:app --workers 4
+uvicorn main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips "*"
 ```
 
 ### 3. Run with Uvicorn programmatically
@@ -64,7 +56,7 @@ Alternatively, you can run Uvicorn directly from within your Python script using
 ```python
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, proxy_headers=True, forwarded_allow_ips="*")
 ```
 
 Note that when using `reload=True` or `workers > 1`, you should pass the app as an import string (e.g., `"main:app"`) instead of the app object itself.

@@ -229,7 +229,8 @@ class ApiServer:
         print(f"  └─ Squirrels Studio: {full_hostname}{mount_path_stripped}/studio")
         if show_multiple_options:
             print(f"     ├─ The root path also redirects to Squirrels Studio: {full_hostname}/")
-        print(     "     └─ This requires an internet connection to load the JS and CSS files")
+        print(     "     ├─ This requires an internet connection to load the JS and CSS files")
+        print(    f"     └─ Automatically uses mount path: {mount_path_stripped}")
         print()
         print(" 🔌 MCP Server URLs")
         if show_multiple_options:
@@ -381,13 +382,6 @@ class ApiServer:
         
         api_v0_app.add_middleware(SmartCORSMiddleware, allowed_credential_origins=allowed_credential_origins, configurables_as_headers=configurables_as_headers)
         
-        # Mount static files from the "resources/public" directory if it exists
-        # This allows users to serve public-facing static assets (images, CSS, JS, etc.) with HTTP requests
-        static_dir = Path(self.project._project_path) / "resources" / "public"
-        if static_dir.exists() and static_dir.is_dir():
-            api_v0_app.mount("/public", StaticFiles(directory=str(static_dir)), name="public")
-            self.logger.info(f"Mounted static files from: {str(static_dir)}")
-
         # Setup route modules for the v0 API
         get_parameters_definition = self.project_routes.setup_routes(api_v0_app, param_fields)
         self.data_management_routes.setup_routes(api_v0_app, param_fields)
@@ -402,6 +396,15 @@ class ApiServer:
         async def health() -> PlainTextResponse:
             return PlainTextResponse(status_code=200, content="OK")
         
+        # Mount static files from the public directories if they exist
+        # This allows users to serve public-facing static assets (images, CSS, JS, etc.) with HTTP requests
+        public_dirs = ["public"]
+        for public_dir in public_dirs:
+            static_dir = Path(self.project._project_path) / "resources" / public_dir
+            if static_dir.exists() and static_dir.is_dir():
+                app.mount(f"/{public_dir}", StaticFiles(directory=str(static_dir)), name=public_dir)
+                self.logger.info(f"Mounted static files from: {str(static_dir)}")
+
         # Build the MCP server after routes are set up
         enforce_mcp_oauth = (
             self.manifest_cfg.project_variables.auth_strategy == AuthStrategy.EXTERNAL

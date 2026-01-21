@@ -1,6 +1,6 @@
 ---
 title: "Changes in v0.6.0"
-description: "January 25th, 2026"
+description: "January 21st, 2026"
 ---
 
 import Intro from '/snippets/releases/intro1.mdx';
@@ -20,6 +20,17 @@ The following are fixes and new features for [v0.6.0].
 - Added the `SquirrelsProject.get_fastapi_components` method to get the FastAPI components for the Squirrels project including mount path, lifespan, and FastAPI app. This allows you to [mount the Squirrels APIs into an existing FastAPI application](/guides/mount-to-fastapi).
 - Since the project name and version are now included in the mount path, they have been removed from the rest of the API path for all endpoints. THIS IS A BREAKING CHANGE. See the /docs endpoint of the Squirrels API server for the updated API endpoints.
 - Running with `sqrl run` (i.e., in "standalone mode") is equivalent to mounting the Squirrels APIs to the default mount path of `/analytics/{project_name}/v{project_version}` and running the main FastAPI app.
+
+**[BREAKING CHANGE] Column condition is now a list of strings**
+
+- Column conditions are now defined as a list of strings instead of a single string. This allows for multiple conditions to be specified for a single column where each condition can be concise and easily understood.
+- Example:
+```yaml
+columns:
+  - name: amount
+    type: float
+    condition: ["group_by == 'Transaction'", "group_by == 'Category'"]
+```
 
 **External auth strategy (`auth_strategy: external`)**
 
@@ -62,6 +73,12 @@ The following are fixes and new features for [v0.6.0].
 - The `sqrl` argument in the dashboard's `main` function now includes a `ctx` dictionary containing the context variables.
 - Dashboards can now override project-level configurables in their `.yml` configuration files using the `configurables` key.
 - These overrides are automatically merged with project-level defaults and are accessible via `sqrl.configurables` in the dashboard logic.
+
+**Static files**
+
+- Static files can now be served from the `resources/public/` directory.
+- For example, if you have an image in `resources/public/images/logo.png`, you can access it using the `{mount_path}/public/images/logo.png` route. When running in standalone mode (i.e., using `sqrl run`), the mount path is `/analytics/{project_name}/v{project_version}`.
+- When specifying the icon for an authentication provider in `pyconfigs/user.py`, you can now use a path starting with `/public/` to indicate a file in the `resources/public/` directory.
 
 ## More info
 
