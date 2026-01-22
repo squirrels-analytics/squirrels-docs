@@ -23,6 +23,7 @@ from ._request_context import set_request_id
 from ._mcp_server import McpServerBuilder
 
 # Import route modules
+from ._api_routes.base import RouteBase
 from ._api_routes.auth import AuthRoutes
 from ._api_routes.project import ProjectRoutes
 from ._api_routes.datasets import DatasetRoutes
@@ -68,8 +69,7 @@ class SmartCORSMiddleware(BaseHTTPMiddleware):
             response.headers["Access-Control-Expose-Headers"] = "Applied-Username"
         
         if origin:
-            scheme = u.get_scheme(request.url.hostname)
-            request_origin = f"{scheme}://{request.url.netloc}"
+            request_origin = f"{request.url.scheme}://{request.url.netloc}"
             # Check if this origin is in the whitelist or if origin matches the host origin
             if origin == request_origin or origin in self.allowed_credential_origins:
                 response.headers["Access-Control-Allow-Origin"] = origin
@@ -430,26 +430,26 @@ class ApiServer:
         # Get API versions and other endpoints
         @app.get("/", summary="Explore all HTTP endpoints")
         async def explore_http_endpoints(request: Request) -> rm.ExploreEndpointsModel:
-            base_url = str(request.url).rstrip("/")
+            _, root_path = RouteBase._get_base_url_for_current_app(request)
             return rm.ExploreEndpointsModel(
-                health_url=base_url + "/health",
+                health_url=root_path + "/health",
                 api_versions={
                     "0": rm.APIVersionMetadataModel(
-                        project_metadata_url=base_url + api_v0_mount_path + "/",
+                        project_metadata_url=root_path + api_v0_mount_path + "/",
                         documentation_routes=rm.DocumentationRoutesModel(
-                            swagger_url=base_url + api_v0_mount_path + "/docs",
-                            redoc_url=base_url + api_v0_mount_path + "/redoc",
-                            openapi_url=base_url + api_v0_mount_path + "/openapi.json"
+                            swagger_url=root_path + api_v0_mount_path + "/docs",
+                            redoc_url=root_path + api_v0_mount_path + "/redoc",
+                            openapi_url=root_path + api_v0_mount_path + "/openapi.json"
                         )
                     )
                 },
                 documentation_routes=rm.DocumentationRoutesModel(
-                    swagger_url=base_url + "/docs",
-                    redoc_url=base_url + "/redoc",
-                    openapi_url=base_url + "/openapi.json"
+                    swagger_url=root_path + "/docs",
+                    redoc_url=root_path + "/redoc",
+                    openapi_url=root_path + "/openapi.json"
                 ),
-                mcp_server_url=base_url + "/mcp",
-                studio_url=base_url + "/studio",
+                mcp_server_url=root_path + "/mcp",
+                studio_url=root_path + "/studio",
             )
         
         # Add Squirrels Studio
@@ -464,11 +464,11 @@ class ApiServer:
             # can become ambiguous and resolve to the wrong mounted app. `request.base_url`
             # is derived from the current request scope (including `root_path`), so it always
             # points at the correct mounted Squirrels server instance.
-            host_url = AuthRoutes._get_base_url_for_current_app(request)
+            _, mount_path = RouteBase._get_base_url_for_current_app(request)
             
             context = {
                 "sqrl_studio_base_url": sqrl_studio_base_url,
-                "host_url": host_url,
+                "mount_path": mount_path,
             }
             template = templates.get_template("squirrels_studio.html")
             return HTMLResponse(content=template.render(context))

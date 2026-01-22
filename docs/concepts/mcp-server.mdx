@@ -18,6 +18,12 @@ Whether MCP requests require authentication depends on your `squirrels.yml` sett
   - If `auth_strategy` is `managed`, you can authenticate using the same mechanisms as the REST API (session / API key).
   - If `auth_strategy` is `external`, the MCP server requires an `Authorization: Bearer <token>` header with a provider-issued token. If missing/invalid, the server responds with HTTP 401 and includes a `WWW-Authenticate` header that points clients to `/.well-known/oauth-protected-resource`.
 
+## Feature flags
+
+The MCP server supports feature flags that can be provided via the `x-feature-flags` header in all MCP requests. This header accepts a comma-delimited list of feature flag names. 
+
+Currently, the only available feature flag is `mcp-full-dataset-v1`. More details about this feature flag is available below in the [Dataset results behavior](#dataset-results-behavior) section.
+
 ## Resources
 
 Resources are data entities that the AI agent can read. The Squirrels MCP server exposes the following resource:
@@ -91,7 +97,7 @@ The `get_dataset_results` tool returns a result containing two main fields: `con
 
 ### Feature flag: `mcp-full-dataset-v1`
 
-When the `mcp-full-dataset-v1` feature flag is sent in the request headers (e.g., by a client that supports it), the `structuredContent` field will contain the **full dataset result**, ignoring the `offset` and `limit` arguments. 
+When the `mcp-full-dataset-v1` feature flag is enabled, the `structuredContent` field will contain the **full dataset result**, ignoring the `offset` and `limit` arguments. 
 
 The `content` field will still be paginated based on `offset` and `limit`, allowing the LLM to see a preview of the data while the client application can access the full dataset for further processing (like chart rendering or code execution).
 

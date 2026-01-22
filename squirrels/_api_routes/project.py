@@ -86,30 +86,30 @@ class ProjectRoutes(RouteBase):
             auth_strategy = self.manifest_cfg.project_variables.auth_strategy
             is_external = (auth_strategy == AuthStrategy.EXTERNAL)
 
-            base_url = str(request.url).rstrip("/")
+            _, root_path = self._get_base_url_for_current_app(request)
             api_routes = rm.ApiRoutesModel(
-                get_data_catalog_url = base_url + "/data-catalog",
-                get_parameters_url = base_url + "/parameters",
-                get_dataset_parameters_url = base_url + "/datasets/{dataset_name}/parameters",
-                get_dataset_results_url = base_url + "/datasets/{dataset_name}",
-                get_dashboard_parameters_url = base_url + "/dashboards/{dashboard_name}/parameters",
-                get_dashboard_results_url = base_url + "/dashboards/{dashboard_name}",
-                trigger_build_url = base_url + "/build",
-                get_query_result_url = base_url + "/query-result",
-                get_compiled_model_url = base_url + "/compiled-models/{model_name}",
-                get_user_session_url = base_url + "/auth/user-session",
-                list_providers_url = base_url + "/auth/providers",
-                login_url = None if is_external else base_url + "/auth/login",
-                logout_url = base_url + "/auth/logout",
-                change_password_url = None if is_external else base_url + "/auth/password",
-                list_api_keys_url = None if is_external else base_url + "/auth/api-keys",
-                create_api_key_url = None if is_external else base_url + "/auth/api-keys",
-                revoke_api_key_url = None if is_external else base_url + "/auth/api-keys/{key_id}",
-                list_user_fields_url = None if is_external else base_url + "/auth/user-management/user-fields",
-                list_users_url = None if is_external else base_url + "/auth/user-management/users",
-                add_user_url = None if is_external else base_url + "/auth/user-management/users",
-                update_user_url = None if is_external else base_url + "/auth/user-management/users/{username}",
-                delete_user_url = None if is_external else base_url + "/auth/user-management/users/{username}",
+                get_data_catalog_url = root_path + "/data-catalog",
+                get_parameters_url = root_path + "/parameters",
+                get_dataset_parameters_url = root_path + "/datasets/{dataset_name}/parameters",
+                get_dataset_results_url = root_path + "/datasets/{dataset_name}",
+                get_dashboard_parameters_url = root_path + "/dashboards/{dashboard_name}/parameters",
+                get_dashboard_results_url = root_path + "/dashboards/{dashboard_name}",
+                trigger_build_url = root_path + "/build",
+                get_query_result_url = root_path + "/query-result",
+                get_compiled_model_url = root_path + "/compiled-models/{model_name}",
+                get_user_session_url = root_path + "/auth/user-session",
+                list_providers_url = root_path + "/auth/providers",
+                login_url = None if is_external else root_path + "/auth/login",
+                logout_url = root_path + "/auth/logout",
+                change_password_url = None if is_external else root_path + "/auth/password",
+                list_api_keys_url = None if is_external else root_path + "/auth/api-keys",
+                create_api_key_url = None if is_external else root_path + "/auth/api-keys",
+                revoke_api_key_url = None if is_external else root_path + "/auth/api-keys/{key_id}",
+                list_user_fields_url = None if is_external else root_path + "/auth/user-management/user-fields",
+                list_users_url = None if is_external else root_path + "/auth/user-management/users",
+                add_user_url = None if is_external else root_path + "/auth/user-management/users",
+                update_user_url = None if is_external else root_path + "/auth/user-management/users/{username}",
+                delete_user_url = None if is_external else root_path + "/auth/user-management/users/{username}",
             )
 
             return rm.ProjectMetadataModel(

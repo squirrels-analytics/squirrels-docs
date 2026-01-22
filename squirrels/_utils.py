@@ -506,17 +506,6 @@ def generate_pkce_challenge(code_verifier: str) -> str:
     expected_challenge = base64.urlsafe_b64encode(verifier_hash).decode('utf-8').rstrip('=')
     return expected_challenge
 
-def validate_pkce_challenge(code_verifier: str, code_challenge: str) -> bool:
-    """Validate PKCE code verifier against code challenge"""
-    # Generate expected challenge
-    expected_challenge = generate_pkce_challenge(code_verifier)
-    return expected_challenge == code_challenge
-
-
-def get_scheme(hostname: str | None) -> str:
-    """Get the scheme of the request"""
-    return "http" if hostname in ("localhost", "127.0.0.1") else "https"
-
 
 def to_title_case(input_str: str) -> str:
     """Convert a string to title case"""

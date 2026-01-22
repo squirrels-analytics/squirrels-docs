@@ -6,7 +6,7 @@ import secrets
 from typing import Annotated, Literal
 from urllib.parse import quote
 from fastapi import FastAPI, Depends, Request, Response, Form, APIRouter
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 from authlib.integrations.starlette_client import OAuth
@@ -25,18 +25,6 @@ class AuthRoutes(RouteBase):
     def __init__(self, get_bearer_token: HTTPBearer, project, no_cache: bool = False):
         super().__init__(get_bearer_token, project, no_cache)
 
-    @staticmethod
-    def _get_base_url_for_current_app(request: Request) -> str:
-        """
-        Build the absolute base URL for the *current* mounted app, including `root_path`.
-
-        We avoid `request.url_for(...)` because route names can collide when multiple Squirrels
-        FastAPI apps are mounted into the same root app.
-        """
-        base_url = f"{request.url.scheme}://{request.url.netloc}"
-        root_path = str(request.scope.get("root_path") or "").rstrip("/")
-        return f"{base_url}{root_path}"
-        
     def setup_routes(self, app: FastAPI) -> None:
         """Setup all authentication routes"""
 
@@ -126,11 +114,11 @@ class AuthRoutes(RouteBase):
         @auth_router.get(providers_path, tags=["Authentication"])
         async def get_providers(request: Request) -> list[rm.ProviderResponse]:
             """Get list of available authentication providers"""
-            base_url = self._get_base_url_for_current_app(request)
+            _, root_path = self._get_base_url_for_current_app(request)
 
             def get_icon_url(icon: str) -> str:
                 if icon.startswith("/public/"):
-                    core_url = base_url.split("/api/")[0]
+                    core_url = root_path.split("/api/")[0]
                     return core_url + icon
                 return icon
 
@@ -139,7 +127,7 @@ class AuthRoutes(RouteBase):
                     name=provider.name,
                     label=provider.label,
                     icon=get_icon_url(provider.icon),
-                    login_url=f"{base_url}{auth_path}/providers/{quote(provider.name)}/login",
+                    login_url=f"{root_path}{auth_path}/providers/{quote(provider.name)}/login",
                 )
                 for provider in self.authenticator.auth_providers
             ]
@@ -157,8 +145,8 @@ class AuthRoutes(RouteBase):
             if client is None:
                 raise InvalidInputError(status_code=404, error="provider_not_found", error_description=f"Provider {provider_name} not found or configured.")
 
-            base_url = self._get_base_url_for_current_app(request)
-            callback_uri = f"{base_url}{auth_path}/providers/{quote(provider_name)}/callback"
+            origin, root_path = self._get_base_url_for_current_app(request)
+            callback_uri = f"{origin}{root_path}{auth_path}/providers/{quote(provider_name)}/callback"
             request.session["redirect_url"] = redirect_url
             
             # OIDC best practice: include a nonce when requesting an id_token.
@@ -182,6 +170,7 @@ class AuthRoutes(RouteBase):
             )
 
         @auth_router.get(provider_callback_path, tags=["Authentication"], responses={
+            200: {"description": "HTML page indicating successful login"},
             307: {"description": "Redirect to redirect_url provided from provider login"},
         })
         async def provider_callback(request: Request, provider_name: str):
@@ -234,9 +223,9 @@ class AuthRoutes(RouteBase):
             redirect_url = request.session.pop("redirect_url", None)
             if redirect_url:
                 return RedirectResponse(url=redirect_url)
-            
-            base_url = self._get_base_url_for_current_app(request)
-            return RedirectResponse(url=f"{base_url}{auth_path}/user-session")
+
+            template = self.templates.get_template("login_successful.html")
+            return HTMLResponse(content=template.render({"request": request}), status_code=200)
 
         # Logout endpoint
         logout_path = '/logout'

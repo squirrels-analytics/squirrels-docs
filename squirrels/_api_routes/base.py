@@ -83,6 +83,18 @@ class RouteBase:
         self.get_user_from_headers = get_user_from_headers
         self.get_current_user = get_current_user
         
+    @staticmethod
+    def _get_base_url_for_current_app(request: Request) -> tuple[str, str]:
+        """
+        Build the absolute base URL for the *current* mounted app, including `root_path`.
+
+        We avoid `request.url_for(...)` because route names can collide when multiple Squirrels
+        FastAPI apps are mounted into the same root app.
+        """
+        origin = f"{request.url.scheme}://{request.url.netloc}"
+        root_path = str(request.scope.get("root_path") or "").rstrip("/")
+        return origin, root_path
+    
     @property
     def _parameters_description(self) -> str:
         """Get the standard parameters description"""
